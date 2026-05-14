@@ -2,19 +2,28 @@
   {
     "id": "obs:seed-dataset-count",
     "entityId": "country:ie",
-    "metric": "seed_dataset_count",
-    "value": 11,
+    "metric": "dataset_count",
+    "value": 5011,
     "unit": "datasets",
-    "timeStart": "2026-05-14T01:18:52.148Z",
+    "timeStart": "2026-05-14T01:24:23.924Z",
     "datasetId": "data-gov-ie-catalog"
   },
   {
-    "id": "obs:seed-domain-count",
+    "id": "obs:discovered-data-gov-ie-count",
+    "entityId": "catalog:data-gov-ie",
+    "metric": "discovered_dataset_count",
+    "value": 5000,
+    "unit": "datasets",
+    "timeStart": "2026-05-14T01:24:23.924Z",
+    "datasetId": "data-gov-ie-catalog"
+  },
+  {
+    "id": "obs:domain-count",
     "entityId": "country:ie",
-    "metric": "seed_domain_count",
-    "value": 13,
+    "metric": "domain_count",
+    "value": 16,
     "unit": "domains",
-    "timeStart": "2026-05-14T01:18:52.148Z",
+    "timeStart": "2026-05-14T01:24:23.924Z",
     "datasetId": "data-gov-ie-catalog"
   }
 ]
