@@ -1,6 +1,6 @@
 {
   "version": "2026-05-14",
-  "generatedAt": "2026-05-14T01:24:23.924Z",
+  "generatedAt": "2026-05-14T01:30:37.052Z",
   "files": [
     "context-bundle.json",
     "dataset-catalog.json",
@@ -8,5 +8,5 @@
     "relationships.json",
     "observations.json"
   ],
-  "discoveredFromDataGovIe": 5000
+  "discoveredFromDataGovIe": 22052
 }

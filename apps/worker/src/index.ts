@@ -13,6 +13,7 @@ app.use('*', async (c, next) => {
 });
 app.options('*', c => new Response(null, { status: 204 }));
 let cached: ContextBundle | undefined;
+let cachedDatasets: ContextBundle['datasets'] | undefined;
 async function loadBundle(env: Env): Promise<ContextBundle> {
   if (cached) return cached;
   if (env.DATA_BUCKET) {
@@ -23,6 +24,16 @@ async function loadBundle(env: Env): Promise<ContextBundle> {
     try { const res = await fetch(`${env.DATA_BASE_URL}/context-bundle.json`, { cf: { cacheTtl: 300 } as RequestInitCfProperties }); if (res.ok) { cached = await res.json<ContextBundle>(); return cached; } } catch {}
   }
   cached = seedBundle; return cached;
+}
+async function loadDatasets(env: Env): Promise<ContextBundle['datasets']> {
+  if (cachedDatasets) return cachedDatasets;
+  if (env.DATA_BUCKET) {
+    const obj = await env.DATA_BUCKET.get('releases/latest/dataset-catalog.json');
+    if (obj) { cachedDatasets = await obj.json<ContextBundle['datasets']>(); return cachedDatasets; }
+  }
+  const bundle = await loadBundle(env);
+  cachedDatasets = bundle.datasets;
+  return cachedDatasets;
 }
 function jsonRpc(id: unknown, result: unknown) { return { jsonrpc: '2.0', id, result }; }
 function jsonRpcError(id: unknown, code: number, message: string) { return { jsonrpc: '2.0', id, error: { code, message } }; }
@@ -38,12 +49,14 @@ function tools() { return [
 ]; }
 async function callTool(name: string, args: any, env: Env) {
   const b = await loadBundle(env);
+  const datasets = await loadDatasets(env);
   if (name === 'list_datasets') {
     const q = args?.query ? normalizeSearch(String(args.query)) : '';
     const domain = args?.domain ? String(args.domain) : '';
-    return { datasets: b.datasets.filter(d => (!domain || d.domains.includes(domain as any)) && (!q || normalizeSearch(`${d.title} ${d.publisher} ${d.description}`).includes(q))), disclaimers: b.disclaimers };
+    const limit = Math.min(Number(args?.limit ?? 50), 500);
+    return { datasets: datasets.filter(d => (!domain || d.domains.includes(domain as any)) && (!q || normalizeSearch(`${d.title} ${d.publisher} ${d.description}`).includes(q))).slice(0, limit), totalAvailable: datasets.length, limit, disclaimers: b.disclaimers };
   }
-  if (name === 'get_dataset_metadata') return { dataset: b.datasets.find(d => d.id === args.dataset_id) ?? null, disclaimers: b.disclaimers };
+  if (name === 'get_dataset_metadata') return { dataset: datasets.find(d => d.id === args.dataset_id) ?? null, disclaimers: b.disclaimers };
   if (name === 'search_entities') {
     const q = normalizeSearch(String(args.query)); const limit = Math.min(Number(args.limit ?? 25), 100);
     return { entities: b.entities.filter(e => normalizeSearch(`${e.id} ${e.name} ${e.type}`).includes(q) && (!args.type || e.type === args.type)).slice(0, limit), disclaimers: b.disclaimers };
@@ -55,11 +68,11 @@ async function callTool(name: string, args: any, env: Env) {
     if (args?.query) for (const e of b.entities.filter(e => normalizeSearch(`${e.id} ${e.name} ${e.type}`).includes(normalizeSearch(String(args.query)))).slice(0, Number(args.limit ?? 10))) ids.add(e.id);
     const rels = b.relationships.filter(r => ids.has(r.subject) || ids.has(r.object));
     for (const r of rels) { ids.add(r.subject); ids.add(r.object); }
-    return { entities:b.entities.filter(e => ids.has(e.id)), relationships:rels, observations:b.observations.filter(o => ids.has(o.entityId)), datasets:b.datasets, disclaimers:b.disclaimers };
+    return { entities:b.entities.filter(e => ids.has(e.id)), relationships:rels, observations:b.observations.filter(o => ids.has(o.entityId)), datasetCount:datasets.length, disclaimers:b.disclaimers };
   }
   if (name === 'get_data_coverage') {
-    const datasets = args?.domain ? b.datasets.filter(d => d.domains.includes(args.domain)) : b.datasets;
-    return { generatedAt:b.generatedAt, datasetCount:datasets.length, domains:[...new Set(datasets.flatMap(d => d.domains))], datasets:datasets.map(d => ({ id:d.id, title:d.title, publisher:d.publisher, updateCadence:d.updateCadence, provenanceNotes:d.provenanceNotes })), caveat:'Coverage is catalogue-driven and uneven across publishers; missingness is expected.', disclaimers:b.disclaimers };
+    const scopedDatasets = args?.domain ? datasets.filter(d => d.domains.includes(args.domain)) : datasets;
+    return { generatedAt:b.generatedAt, datasetCount:scopedDatasets.length, domains:[...new Set(scopedDatasets.flatMap(d => d.domains))], datasets:scopedDatasets.slice(0, 100).map(d => ({ id:d.id, title:d.title, publisher:d.publisher, updateCadence:d.updateCadence, provenanceNotes:d.provenanceNotes })), returned: Math.min(scopedDatasets.length, 100), caveat:'Coverage is catalogue-driven and uneven across publishers; missingness is expected.', disclaimers:b.disclaimers };
   }
   if (name === 'get_export_links') { const base = env.DATA_BASE_URL || '/data'; return { links: ['context-bundle.json','dataset-catalog.json','entities.json','relationships.json','observations.json','manifest.json'].map(f => ({ name:f, url:`${base}/${f}` })), disclaimers:b.disclaimers }; }
   throw new Error(`Unknown tool: ${name}`);

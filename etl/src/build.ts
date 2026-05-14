@@ -43,7 +43,7 @@ async function fetchCkanDatasets(): Promise<Bundle['datasets']> {
   if (process.env.IPCG_OFFLINE === '1') return [];
   const out: Bundle['datasets'] = [];
   const rows = 100;
-  for (let start = 0; start < 5000; start += rows) {
+  for (let start = 0; start < 30000; start += rows) {
     const url = `https://data.gov.ie/api/3/action/package_search?rows=${rows}&start=${start}`;
     const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
     if (!res.ok) throw new Error(`CKAN fetch failed ${res.status}`);
@@ -74,7 +74,8 @@ async function fetchCkanDatasets(): Promise<Bundle['datasets']> {
 let discovered: Bundle['datasets'] = [];
 try { discovered = await fetchCkanDatasets(); } catch (err) { console.warn('CKAN discovery failed; using seed catalogue only:', err instanceof Error ? err.message : String(err)); }
 const seen = new Set<string>();
-const datasets = [...seedDatasets, ...discovered].filter(d => seen.has(d.id) ? false : (seen.add(d.id), true));
+const catalogDatasets = [...seedDatasets, ...discovered].filter(d => seen.has(d.id) ? false : (seen.add(d.id), true));
+const datasets = seedDatasets;
 const entities: Bundle['entities'] = [
   { id:'country:ie', type:'country', name:'Ireland', datasetIds:['cso-statbank'], properties:{ iso2:'IE' } },
   { id:'catalog:data-gov-ie', type:'catalog', name:'data.gov.ie', datasetIds:['data-gov-ie-catalog'], properties:{ endpoint:'https://data.gov.ie/api/3/action/package_search', discoveredDatasetCount: discovered.length } },
@@ -85,14 +86,14 @@ const relationships: Bundle['relationships'] = [];
 for (const ds of datasets) for (const domain of ds.domains) relationships.push({ id:`rel:${ds.id}:domain:${domain}`, subject:`dataset:${ds.id}`, predicate:'belongs_to_domain', object:`domain:${domain}`, datasetIds:[ds.id], confidence:'source', evidence:'Dataset catalogue domain classification' });
 relationships.push({ id:'rel:catalog:indexes-country', subject:'catalog:data-gov-ie', predicate:'indexes_public_data_for', object:'country:ie', datasetIds:['data-gov-ie-catalog'], confidence:'source' });
 const observations: Bundle['observations'] = [
-  { id:'obs:seed-dataset-count', entityId:'country:ie', metric:'dataset_count', value:datasets.length, unit:'datasets', timeStart:now, datasetId:'data-gov-ie-catalog' },
+  { id:'obs:seed-dataset-count', entityId:'country:ie', metric:'dataset_count', value:catalogDatasets.length, unit:'datasets', timeStart:now, datasetId:'data-gov-ie-catalog' },
   { id:'obs:discovered-data-gov-ie-count', entityId:'catalog:data-gov-ie', metric:'discovered_dataset_count', value:discovered.length, unit:'datasets', timeStart:now, datasetId:'data-gov-ie-catalog' },
   { id:'obs:domain-count', entityId:'country:ie', metric:'domain_count', value:domains.length, unit:'domains', timeStart:now, datasetId:'data-gov-ie-catalog' }
 ];
 const bundle = ContextBundle.parse({ generatedAt:now, version:now.slice(0,10), datasets, entities, relationships, observations, disclaimers:[...CLAIM_BOUNDARY] });
 const out=resolve('dist/public-data'); mkdirSync(out,{recursive:true});
 const web=resolve('../apps/web/public/data'); mkdirSync(web,{recursive:true});
-for (const [name, data] of Object.entries({ 'context-bundle.json':bundle, 'dataset-catalog.json':bundle.datasets, 'entities.json':bundle.entities, 'relationships.json':bundle.relationships, 'observations.json':bundle.observations, 'manifest.json':{version:bundle.version,generatedAt:bundle.generatedAt,files:['context-bundle.json','dataset-catalog.json','entities.json','relationships.json','observations.json'], discoveredFromDataGovIe:discovered.length} })) {
+for (const [name, data] of Object.entries({ 'context-bundle.json':bundle, 'dataset-catalog.json':catalogDatasets, 'entities.json':bundle.entities, 'relationships.json':bundle.relationships, 'observations.json':bundle.observations, 'manifest.json':{version:bundle.version,generatedAt:bundle.generatedAt,files:['context-bundle.json','dataset-catalog.json','entities.json','relationships.json','observations.json'], discoveredFromDataGovIe:discovered.length} })) {
   const json=JSON.stringify(data,null,2); writeFileSync(resolve(out,name),json); writeFileSync(resolve(web,name),json);
 }
-console.log(`Generated ${datasets.length} datasets (${discovered.length} from data.gov.ie), ${entities.length} entities, ${relationships.length} relationships`);
+console.log(`Generated ${catalogDatasets.length} catalogue datasets (${discovered.length} from data.gov.ie), ${entities.length} entities, ${relationships.length} relationships`);

@@ -1,8 +1,9 @@
 ---
-const manifest = await import('../../public/data/manifest.json').then(m => m.default).catch(() => ({ version: 'seed', generatedAt: 'pending' }));
-const datasets = await import('../../public/data/dataset-catalog.json').then(m => m.default).catch(() => []);
-const entities = await import('../../public/data/entities.json').then(m => m.default).catch(() => []);
-const relationships = await import('../../public/data/relationships.json').then(m => m.default).catch(() => []);
+const manifest = await import('../../public/data/manifest.json').then(m => m.default).catch(() => ({ version: 'seed', generatedAt: 'pending', discoveredFromDataGovIe: 0 }));
+const context = await import('../../public/data/context-bundle.json').then(m => m.default).catch(() => ({ datasets: [], entities: [], relationships: [] }));
+const datasetCount = Number(manifest.discoveredFromDataGovIe ?? 0) + context.datasets.length;
+const entities = context.entities ?? [];
+const relationships = context.relationships ?? [];
 ---
 <html lang="en">
   <head>
@@ -24,7 +25,7 @@ const relationships = await import('../../public/data/relationships.json').then(
         <a class="button secondary" href="/mcp">Hosted MCP endpoint</a>
       </section>
       <section class="grid">
-        <div class="card"><h2>{datasets.length}</h2><p>Seed dataset families catalogued</p></div>
+        <div class="card"><h2>{datasetCount}</h2><p>Dataset records catalogued</p></div>
         <div class="card"><h2>{entities.length}</h2><p>Seed graph entities generated</p></div>
         <div class="card"><h2>{relationships.length}</h2><p>Seed relationships linked</p></div>
         <div class="card"><h2>{manifest.version}</h2><p>Current data release</p></div>
