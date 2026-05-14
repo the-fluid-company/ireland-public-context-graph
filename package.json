@@ -1,0 +1,19 @@
+{
+  "name": "ireland-public-context-graph",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Hosted public-data context graph and MCP layer for Ireland.",
+  "scripts": {
+    "build": "pnpm -r build",
+    "check": "pnpm -r check",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint",
+    "build:data": "pnpm --filter @ipcg/shared build && pnpm --filter @ipcg/data build",
+    "dev:web": "pnpm --filter @ipcg/web dev",
+    "dev:worker": "pnpm --filter @ipcg/worker dev",
+    "deploy": "pnpm --filter @ipcg/worker run deploy && pnpm --filter @ipcg/web run deploy"
+  },
+  "engines": { "node": ">=20.0.0", "pnpm": ">=9.0.0" },
+  "packageManager": "pnpm@9.15.4"
+}

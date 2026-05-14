@@ -1,0 +1,59 @@
+---
+const manifest = await import('../../public/data/manifest.json').then(m => m.default).catch(() => ({ version: 'seed', generatedAt: 'pending' }));
+const datasets = await import('../../public/data/dataset-catalog.json').then(m => m.default).catch(() => []);
+const entities = await import('../../public/data/entities.json').then(m => m.default).catch(() => []);
+const relationships = await import('../../public/data/relationships.json').then(m => m.default).catch(() => []);
+---
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ireland Public Context Graph</title>
+    <meta name="description" content="A hosted public-data context graph and MCP access layer for Ireland." />
+    <style>
+      :root{font-family:Inter,ui-sans-serif,system-ui,sans-serif;color:#102018;background:#f7faf8}body{margin:0}.wrap{max-width:1120px;margin:auto;padding:32px 20px}.hero{padding:56px 0}.badge{display:inline-block;background:#dff8e8;color:#095227;padding:6px 10px;border-radius:999px;font-weight:700;font-size:13px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}.card{background:white;border:1px solid #dfe9e2;border-radius:18px;padding:20px;box-shadow:0 4px 18px #1232}.muted{color:#52645a}.button{display:inline-block;background:#0b6b37;color:white;text-decoration:none;border-radius:12px;padding:12px 16px;font-weight:700;margin-right:8px;margin-top:8px}.button.secondary{background:#17342a}code{background:#edf4ef;padding:2px 5px;border-radius:6px}a{color:#0b6b37}footer{border-top:1px solid #dfe9e2;margin-top:48px;padding:24px 0;color:#52645a}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;word-break:break-all}</style>
+  </head>
+  <body>
+    <main class="wrap">
+      <section class="hero">
+        <span class="badge">Data-only contextual intelligence layer</span>
+        <h1>Ireland Public Context Graph</h1>
+        <p class="muted">A provenance-first hub that collates, normalizes, versions and links public Irish datasets across transport, roads, planning, environment, weather, demographics, health, education, public services, infrastructure and local government.</p>
+        <p><strong>The project provides data and relationships only.</strong> It does not provide conclusions, causation, safety determinations, official designations, engineering assessments, legal opinions or recommendations.</p>
+        <a class="button" href="/data/context-bundle.json">Download context bundle</a>
+        <a class="button secondary" href="/mcp">Hosted MCP endpoint</a>
+      </section>
+      <section class="grid">
+        <div class="card"><h2>{datasets.length}</h2><p>Seed dataset families catalogued</p></div>
+        <div class="card"><h2>{entities.length}</h2><p>Seed graph entities generated</p></div>
+        <div class="card"><h2>{relationships.length}</h2><p>Seed relationships linked</p></div>
+        <div class="card"><h2>{manifest.version}</h2><p>Current data release</p></div>
+      </section>
+      <section>
+        <h2>Hosted MCP</h2>
+        <p>Connect Claude, Codex or another remote-MCP client to the hosted endpoint once deployed:</p>
+        <p class="mono">https://ireland-public-context-graph-mcp.&lt;cloudflare-subdomain&gt;.workers.dev/mcp</p>
+        <p>The MCP exposes read-only data tools such as <code>list_datasets</code>, <code>get_dataset_metadata</code>, <code>search_entities</code>, <code>get_relationships</code>, <code>get_context_graph</code>, <code>get_data_coverage</code> and <code>get_export_links</code>.</p>
+      </section>
+      <section>
+        <h2>Data artifacts</h2>
+        <div class="grid">
+          <a class="card" href="/data/dataset-catalog.json">Dataset catalogue</a>
+          <a class="card" href="/data/entities.json">Entities</a>
+          <a class="card" href="/data/relationships.json">Relationships</a>
+          <a class="card" href="/data/observations.json">Observations</a>
+          <a class="card" href="/data/manifest.json">Release manifest</a>
+        </div>
+      </section>
+      <section>
+        <h2>Claim boundary</h2>
+        <ul>
+          <li>Public and derived contextual datasets only.</li>
+          <li>No official findings, legal opinions, engineering assessments, causation conclusions, safety determinations or recommendations.</li>
+          <li>Interpretation by users or third-party AI tools is external to this project.</li>
+        </ul>
+      </section>
+      <footer>Generated: {manifest.generatedAt}. Source: <a href="https://github.com/the-fluid-company/ireland-public-context-graph">GitHub</a>.</footer>
+    </main>
+  </body>
+</html>

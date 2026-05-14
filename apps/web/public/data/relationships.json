@@ -1,0 +1,430 @@
+[
+  {
+    "id": "rel:data-gov-ie-catalog:domain:local-government",
+    "subject": "dataset:data-gov-ie-catalog",
+    "predicate": "belongs_to_domain",
+    "object": "domain:local-government",
+    "datasetIds": [
+      "data-gov-ie-catalog"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:data-gov-ie-catalog:domain:public-services",
+    "subject": "dataset:data-gov-ie-catalog",
+    "predicate": "belongs_to_domain",
+    "object": "domain:public-services",
+    "datasetIds": [
+      "data-gov-ie-catalog"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:data-gov-ie-catalog:domain:transport",
+    "subject": "dataset:data-gov-ie-catalog",
+    "predicate": "belongs_to_domain",
+    "object": "domain:transport",
+    "datasetIds": [
+      "data-gov-ie-catalog"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:data-gov-ie-catalog:domain:environment",
+    "subject": "dataset:data-gov-ie-catalog",
+    "predicate": "belongs_to_domain",
+    "object": "domain:environment",
+    "datasetIds": [
+      "data-gov-ie-catalog"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:data-gov-ie-catalog:domain:planning",
+    "subject": "dataset:data-gov-ie-catalog",
+    "predicate": "belongs_to_domain",
+    "object": "domain:planning",
+    "datasetIds": [
+      "data-gov-ie-catalog"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:data-gov-ie-catalog:domain:health",
+    "subject": "dataset:data-gov-ie-catalog",
+    "predicate": "belongs_to_domain",
+    "object": "domain:health",
+    "datasetIds": [
+      "data-gov-ie-catalog"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:data-gov-ie-catalog:domain:education",
+    "subject": "dataset:data-gov-ie-catalog",
+    "predicate": "belongs_to_domain",
+    "object": "domain:education",
+    "datasetIds": [
+      "data-gov-ie-catalog"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:data-gov-ie-catalog:domain:economy",
+    "subject": "dataset:data-gov-ie-catalog",
+    "predicate": "belongs_to_domain",
+    "object": "domain:economy",
+    "datasetIds": [
+      "data-gov-ie-catalog"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:cso-statbank:domain:demographics",
+    "subject": "dataset:cso-statbank",
+    "predicate": "belongs_to_domain",
+    "object": "domain:demographics",
+    "datasetIds": [
+      "cso-statbank"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:cso-statbank:domain:economy",
+    "subject": "dataset:cso-statbank",
+    "predicate": "belongs_to_domain",
+    "object": "domain:economy",
+    "datasetIds": [
+      "cso-statbank"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:cso-statbank:domain:housing",
+    "subject": "dataset:cso-statbank",
+    "predicate": "belongs_to_domain",
+    "object": "domain:housing",
+    "datasetIds": [
+      "cso-statbank"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:cso-statbank:domain:local-government",
+    "subject": "dataset:cso-statbank",
+    "predicate": "belongs_to_domain",
+    "object": "domain:local-government",
+    "datasetIds": [
+      "cso-statbank"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:tailte-spatial:domain:roads",
+    "subject": "dataset:tailte-spatial",
+    "predicate": "belongs_to_domain",
+    "object": "domain:roads",
+    "datasetIds": [
+      "tailte-spatial"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:tailte-spatial:domain:planning",
+    "subject": "dataset:tailte-spatial",
+    "predicate": "belongs_to_domain",
+    "object": "domain:planning",
+    "datasetIds": [
+      "tailte-spatial"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:tailte-spatial:domain:infrastructure",
+    "subject": "dataset:tailte-spatial",
+    "predicate": "belongs_to_domain",
+    "object": "domain:infrastructure",
+    "datasetIds": [
+      "tailte-spatial"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:nta-gtfs:domain:transport",
+    "subject": "dataset:nta-gtfs",
+    "predicate": "belongs_to_domain",
+    "object": "domain:transport",
+    "datasetIds": [
+      "nta-gtfs"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:nta-gtfs:domain:infrastructure",
+    "subject": "dataset:nta-gtfs",
+    "predicate": "belongs_to_domain",
+    "object": "domain:infrastructure",
+    "datasetIds": [
+      "nta-gtfs"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:tii-traffic-roads:domain:transport",
+    "subject": "dataset:tii-traffic-roads",
+    "predicate": "belongs_to_domain",
+    "object": "domain:transport",
+    "datasetIds": [
+      "tii-traffic-roads"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:tii-traffic-roads:domain:roads",
+    "subject": "dataset:tii-traffic-roads",
+    "predicate": "belongs_to_domain",
+    "object": "domain:roads",
+    "datasetIds": [
+      "tii-traffic-roads"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:tii-traffic-roads:domain:infrastructure",
+    "subject": "dataset:tii-traffic-roads",
+    "predicate": "belongs_to_domain",
+    "object": "domain:infrastructure",
+    "datasetIds": [
+      "tii-traffic-roads"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:rsa-collisions:domain:collisions",
+    "subject": "dataset:rsa-collisions",
+    "predicate": "belongs_to_domain",
+    "object": "domain:collisions",
+    "datasetIds": [
+      "rsa-collisions"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:rsa-collisions:domain:roads",
+    "subject": "dataset:rsa-collisions",
+    "predicate": "belongs_to_domain",
+    "object": "domain:roads",
+    "datasetIds": [
+      "rsa-collisions"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:rsa-collisions:domain:transport",
+    "subject": "dataset:rsa-collisions",
+    "predicate": "belongs_to_domain",
+    "object": "domain:transport",
+    "datasetIds": [
+      "rsa-collisions"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:met-eireann:domain:weather",
+    "subject": "dataset:met-eireann",
+    "predicate": "belongs_to_domain",
+    "object": "domain:weather",
+    "datasetIds": [
+      "met-eireann"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:met-eireann:domain:environment",
+    "subject": "dataset:met-eireann",
+    "predicate": "belongs_to_domain",
+    "object": "domain:environment",
+    "datasetIds": [
+      "met-eireann"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:opw-flood:domain:environment",
+    "subject": "dataset:opw-flood",
+    "predicate": "belongs_to_domain",
+    "object": "domain:environment",
+    "datasetIds": [
+      "opw-flood"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:opw-flood:domain:planning",
+    "subject": "dataset:opw-flood",
+    "predicate": "belongs_to_domain",
+    "object": "domain:planning",
+    "datasetIds": [
+      "opw-flood"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:opw-flood:domain:infrastructure",
+    "subject": "dataset:opw-flood",
+    "predicate": "belongs_to_domain",
+    "object": "domain:infrastructure",
+    "datasetIds": [
+      "opw-flood"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:hse-services:domain:health",
+    "subject": "dataset:hse-services",
+    "predicate": "belongs_to_domain",
+    "object": "domain:health",
+    "datasetIds": [
+      "hse-services"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:hse-services:domain:public-services",
+    "subject": "dataset:hse-services",
+    "predicate": "belongs_to_domain",
+    "object": "domain:public-services",
+    "datasetIds": [
+      "hse-services"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:education-schools:domain:education",
+    "subject": "dataset:education-schools",
+    "predicate": "belongs_to_domain",
+    "object": "domain:education",
+    "datasetIds": [
+      "education-schools"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:education-schools:domain:demographics",
+    "subject": "dataset:education-schools",
+    "predicate": "belongs_to_domain",
+    "object": "domain:demographics",
+    "datasetIds": [
+      "education-schools"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:education-schools:domain:public-services",
+    "subject": "dataset:education-schools",
+    "predicate": "belongs_to_domain",
+    "object": "domain:public-services",
+    "datasetIds": [
+      "education-schools"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:local-authority-assets:domain:local-government",
+    "subject": "dataset:local-authority-assets",
+    "predicate": "belongs_to_domain",
+    "object": "domain:local-government",
+    "datasetIds": [
+      "local-authority-assets"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:local-authority-assets:domain:infrastructure",
+    "subject": "dataset:local-authority-assets",
+    "predicate": "belongs_to_domain",
+    "object": "domain:infrastructure",
+    "datasetIds": [
+      "local-authority-assets"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:local-authority-assets:domain:planning",
+    "subject": "dataset:local-authority-assets",
+    "predicate": "belongs_to_domain",
+    "object": "domain:planning",
+    "datasetIds": [
+      "local-authority-assets"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:local-authority-assets:domain:transport",
+    "subject": "dataset:local-authority-assets",
+    "predicate": "belongs_to_domain",
+    "object": "domain:transport",
+    "datasetIds": [
+      "local-authority-assets"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:local-authority-assets:domain:environment",
+    "subject": "dataset:local-authority-assets",
+    "predicate": "belongs_to_domain",
+    "object": "domain:environment",
+    "datasetIds": [
+      "local-authority-assets"
+    ],
+    "confidence": "source",
+    "evidence": "Dataset catalogue domain classification"
+  },
+  {
+    "id": "rel:catalog:indexes-country",
+    "subject": "catalog:data-gov-ie",
+    "predicate": "indexes_public_data_for",
+    "object": "country:ie",
+    "datasetIds": [
+      "data-gov-ie-catalog"
+    ],
+    "confidence": "source"
+  }
+]

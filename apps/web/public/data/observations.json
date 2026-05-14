@@ -1,0 +1,20 @@
+[
+  {
+    "id": "obs:seed-dataset-count",
+    "entityId": "country:ie",
+    "metric": "seed_dataset_count",
+    "value": 11,
+    "unit": "datasets",
+    "timeStart": "2026-05-14T01:18:52.148Z",
+    "datasetId": "data-gov-ie-catalog"
+  },
+  {
+    "id": "obs:seed-domain-count",
+    "entityId": "country:ie",
+    "metric": "seed_domain_count",
+    "value": 13,
+    "unit": "domains",
+    "timeStart": "2026-05-14T01:18:52.148Z",
+    "datasetId": "data-gov-ie-catalog"
+  }
+]

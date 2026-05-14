@@ -1,0 +1,23 @@
+name = "ireland-public-context-graph-mcp"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+workers_dev = true
+account_id = "b1d0b5a0c8ef7fdc9b7f2bd788488a12"
+
+[vars]
+DATA_BASE_URL = "https://ireland-public-context-graph.pages.dev/data"
+SERVICE_NAME = "Ireland Public Context Graph"
+SERVICE_VERSION = "0.1.0"
+
+[[d1_databases]]
+binding = "CONTEXT_DB"
+database_name = "ireland-public-context-graph"
+database_id = "425d9bca-5137-443b-a5fb-7f1172950ec2"
+
+[[r2_buckets]]
+binding = "DATA_BUCKET"
+bucket_name = "ireland-public-context-graph"
+
+[[kv_namespaces]]
+binding = "CONTEXT_KV"
+id = "66cec0eddadb4c1799f33723f4c9d799"

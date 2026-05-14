@@ -1,0 +1,333 @@
+[
+  {
+    "id": "country:ie",
+    "type": "country",
+    "name": "Ireland",
+    "datasetIds": [
+      "cso-statbank"
+    ],
+    "properties": {
+      "iso2": "IE"
+    }
+  },
+  {
+    "id": "catalog:data-gov-ie",
+    "type": "catalog",
+    "name": "data.gov.ie",
+    "datasetIds": [
+      "data-gov-ie-catalog"
+    ],
+    "properties": {
+      "endpoint": "https://data.gov.ie/api/3/action/package_search"
+    }
+  },
+  {
+    "id": "domain:transport",
+    "type": "domain",
+    "name": "transport",
+    "datasetIds": [
+      "data-gov-ie-catalog"
+    ],
+    "properties": {}
+  },
+  {
+    "id": "domain:roads",
+    "type": "domain",
+    "name": "roads",
+    "datasetIds": [
+      "data-gov-ie-catalog"
+    ],
+    "properties": {}
+  },
+  {
+    "id": "domain:collisions",
+    "type": "domain",
+    "name": "collisions",
+    "datasetIds": [
+      "data-gov-ie-catalog"
+    ],
+    "properties": {}
+  },
+  {
+    "id": "domain:planning",
+    "type": "domain",
+    "name": "planning",
+    "datasetIds": [
+      "data-gov-ie-catalog"
+    ],
+    "properties": {}
+  },
+  {
+    "id": "domain:environment",
+    "type": "domain",
+    "name": "environment",
+    "datasetIds": [
+      "data-gov-ie-catalog"
+    ],
+    "properties": {}
+  },
+  {
+    "id": "domain:weather",
+    "type": "domain",
+    "name": "weather",
+    "datasetIds": [
+      "data-gov-ie-catalog"
+    ],
+    "properties": {}
+  },
+  {
+    "id": "domain:demographics",
+    "type": "domain",
+    "name": "demographics",
+    "datasetIds": [
+      "data-gov-ie-catalog"
+    ],
+    "properties": {}
+  },
+  {
+    "id": "domain:health",
+    "type": "domain",
+    "name": "health",
+    "datasetIds": [
+      "data-gov-ie-catalog"
+    ],
+    "properties": {}
+  },
+  {
+    "id": "domain:education",
+    "type": "domain",
+    "name": "education",
+    "datasetIds": [
+      "data-gov-ie-catalog"
+    ],
+    "properties": {}
+  },
+  {
+    "id": "domain:public-services",
+    "type": "domain",
+    "name": "public services",
+    "datasetIds": [
+      "data-gov-ie-catalog"
+    ],
+    "properties": {}
+  },
+  {
+    "id": "domain:infrastructure",
+    "type": "domain",
+    "name": "infrastructure",
+    "datasetIds": [
+      "data-gov-ie-catalog"
+    ],
+    "properties": {}
+  },
+  {
+    "id": "domain:economy",
+    "type": "domain",
+    "name": "economy",
+    "datasetIds": [
+      "data-gov-ie-catalog"
+    ],
+    "properties": {}
+  },
+  {
+    "id": "domain:local-government",
+    "type": "domain",
+    "name": "local government",
+    "datasetIds": [
+      "data-gov-ie-catalog"
+    ],
+    "properties": {}
+  },
+  {
+    "id": "dataset:data-gov-ie-catalog",
+    "type": "dataset",
+    "name": "Ireland Open Data Portal catalogue",
+    "datasetIds": [
+      "data-gov-ie-catalog"
+    ],
+    "properties": {
+      "publisher": "Department of Public Expenditure, NDP Delivery and Reform",
+      "formats": [
+        "CKAN API",
+        "CSV",
+        "GeoJSON",
+        "JSON",
+        "XML"
+      ],
+      "updateCadence": "continuous"
+    }
+  },
+  {
+    "id": "dataset:cso-statbank",
+    "type": "dataset",
+    "name": "CSO StatBank and statistical geography",
+    "datasetIds": [
+      "cso-statbank"
+    ],
+    "properties": {
+      "publisher": "Central Statistics Office Ireland",
+      "formats": [
+        "PX",
+        "CSV",
+        "API",
+        "JSON"
+      ],
+      "updateCadence": "periodic"
+    }
+  },
+  {
+    "id": "dataset:tailte-spatial",
+    "type": "dataset",
+    "name": "Tailte Éireann spatial reference data",
+    "datasetIds": [
+      "tailte-spatial"
+    ],
+    "properties": {
+      "publisher": "Tailte Éireann",
+      "formats": [
+        "SHP",
+        "GeoPackage",
+        "API"
+      ],
+      "updateCadence": "periodic"
+    }
+  },
+  {
+    "id": "dataset:nta-gtfs",
+    "type": "dataset",
+    "name": "NTA GTFS and public transport data",
+    "datasetIds": [
+      "nta-gtfs"
+    ],
+    "properties": {
+      "publisher": "National Transport Authority",
+      "formats": [
+        "GTFS",
+        "GTFS-RT",
+        "CSV",
+        "Protocol Buffers"
+      ],
+      "updateCadence": "frequent"
+    }
+  },
+  {
+    "id": "dataset:tii-traffic-roads",
+    "type": "dataset",
+    "name": "TII traffic and national roads data",
+    "datasetIds": [
+      "tii-traffic-roads"
+    ],
+    "properties": {
+      "publisher": "Transport Infrastructure Ireland",
+      "formats": [
+        "CSV",
+        "API",
+        "GeoJSON"
+      ],
+      "updateCadence": "daily/monthly/annual depending source"
+    }
+  },
+  {
+    "id": "dataset:rsa-collisions",
+    "type": "dataset",
+    "name": "RSA collision and casualty data",
+    "datasetIds": [
+      "rsa-collisions"
+    ],
+    "properties": {
+      "publisher": "Road Safety Authority / Department of Transport",
+      "formats": [
+        "Tableau",
+        "CSV",
+        "API if available"
+      ],
+      "updateCadence": "periodic"
+    }
+  },
+  {
+    "id": "dataset:met-eireann",
+    "type": "dataset",
+    "name": "Met Éireann observations, forecasts, warnings and climate data",
+    "datasetIds": [
+      "met-eireann"
+    ],
+    "properties": {
+      "publisher": "Met Éireann",
+      "formats": [
+        "CSV",
+        "API",
+        "JSON"
+      ],
+      "updateCadence": "hourly/daily/periodic"
+    }
+  },
+  {
+    "id": "dataset:opw-flood",
+    "type": "dataset",
+    "name": "OPW flood maps and flood risk datasets",
+    "datasetIds": [
+      "opw-flood"
+    ],
+    "properties": {
+      "publisher": "Office of Public Works",
+      "formats": [
+        "WMS",
+        "GeoJSON",
+        "SHP"
+      ],
+      "updateCadence": "periodic"
+    }
+  },
+  {
+    "id": "dataset:hse-services",
+    "type": "dataset",
+    "name": "HSE and public health service locations",
+    "datasetIds": [
+      "hse-services"
+    ],
+    "properties": {
+      "publisher": "Health Service Executive",
+      "formats": [
+        "CSV",
+        "API",
+        "HTML"
+      ],
+      "updateCadence": "periodic"
+    }
+  },
+  {
+    "id": "dataset:education-schools",
+    "type": "dataset",
+    "name": "School locations and education statistics",
+    "datasetIds": [
+      "education-schools"
+    ],
+    "properties": {
+      "publisher": "Department of Education / data.gov.ie",
+      "formats": [
+        "CSV",
+        "XLSX",
+        "GeoJSON"
+      ],
+      "updateCadence": "annual/periodic"
+    }
+  },
+  {
+    "id": "dataset:local-authority-assets",
+    "type": "dataset",
+    "name": "Local authority infrastructure and civic assets",
+    "datasetIds": [
+      "local-authority-assets"
+    ],
+    "properties": {
+      "publisher": "Irish local authorities",
+      "formats": [
+        "CSV",
+        "GeoJSON",
+        "SHP",
+        "API"
+      ],
+      "updateCadence": "varies"
+    }
+  }
+]

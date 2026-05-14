@@ -1,0 +1,8 @@
+{
+  "name": "@ipcg/web",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": { "build": "astro build", "check": "astro check", "test": "vitest run --passWithNoTests", "lint": "astro check", "dev": "astro dev", "deploy": "wrangler pages deploy dist --project-name ireland-public-context-graph" },
+  "dependencies": { "@astrojs/check": "^0.9.4", "astro": "^5.1.1", "typescript": "^5.7.2" },
+  "devDependencies": { "vitest": "^2.1.8", "wrangler": "^3.101.0" }
+}
