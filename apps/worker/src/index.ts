@@ -4,6 +4,14 @@ import { seedBundle } from './seed-data';
 
 type Env = { DATA_BASE_URL?: string; SERVICE_NAME?: string; SERVICE_VERSION?: string; CONTEXT_DB?: D1Database; DATA_BUCKET?: R2Bucket; CONTEXT_KV?: KVNamespace };
 const app = new Hono<{ Bindings: Env }>();
+app.use('*', async (c, next) => {
+  await next();
+  c.header('Access-Control-Allow-Origin', '*');
+  c.header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  c.header('Access-Control-Allow-Headers', 'content-type, accept, authorization, mcp-session-id');
+  c.header('Access-Control-Expose-Headers', 'mcp-session-id');
+});
+app.options('*', c => new Response(null, { status: 204 }));
 let cached: ContextBundle | undefined;
 async function loadBundle(env: Env): Promise<ContextBundle> {
   if (cached) return cached;
@@ -65,7 +73,7 @@ app.get('/mcp', c => c.json({ protocol:'MCP Streamable HTTP JSON-RPC endpoint', 
 app.post('/mcp', async c => {
   const req = await c.req.json<any>();
   try {
-    if (Array.isArray(req)) return c.json(await Promise.all(req.map(async r => jsonRpc(r.id, await handleRpc(r, c.env)))));
+    if (Array.isArray(req)) return c.json(await Promise.all(req.map(async r => handleRpc(r, c.env))));
     return c.json(await handleRpc(req, c.env));
   } catch (err) { return c.json(jsonRpcError(req?.id ?? null, -32603, err instanceof Error ? err.message : 'Internal error'), 500); }
 });
