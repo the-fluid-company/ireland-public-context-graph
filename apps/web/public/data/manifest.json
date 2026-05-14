@@ -1,12 +1,1 @@
-{
-  "version": "2026-05-14",
-  "generatedAt": "2026-05-14T01:30:37.052Z",
-  "files": [
-    "context-bundle.json",
-    "dataset-catalog.json",
-    "entities.json",
-    "relationships.json",
-    "observations.json"
-  ],
-  "discoveredFromDataGovIe": 22052
-}
+{"version":"2026-05-14","generatedAt":"2026-05-14T02:57:33.284Z","files":["context-bundle.json","dataset-catalog.json","source-records.json","coverage-report.json","search-index.json","entities.json","relationships.json","observations.json","graph-index.json","publishers.json"],"discoveredFromDataGovIe":22052,"datasetCount":22063,"publisherCount":128,"entityCount":22209,"relationshipCount":55440}

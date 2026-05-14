@@ -1,9 +1,6 @@
 ---
-const manifest = await import('../../public/data/manifest.json').then(m => m.default).catch(() => ({ version: 'seed', generatedAt: 'pending', discoveredFromDataGovIe: 0 }));
-const context = await import('../../public/data/context-bundle.json').then(m => m.default).catch(() => ({ datasets: [], entities: [], relationships: [] }));
-const datasetCount = Number(manifest.discoveredFromDataGovIe ?? 0) + context.datasets.length;
-const entities = context.entities ?? [];
-const relationships = context.relationships ?? [];
+const manifest = await import('../../public/data/manifest.json').then(m => m.default).catch(() => ({ version: 'seed', generatedAt: 'pending', datasetCount: 0, publisherCount: 0, entityCount: 0, relationshipCount: 0 }));
+const graph = await import('../../public/data/graph-index.json').then(m => m.default).catch(() => ({ domains: {}, entityTypes: {}, relationshipTypes: {} }));
 ---
 <html lang="en">
   <head>
@@ -12,37 +9,54 @@ const relationships = context.relationships ?? [];
     <title>Ireland Public Context Graph</title>
     <meta name="description" content="A hosted public-data context graph and MCP access layer for Ireland." />
     <style>
-      :root{font-family:Inter,ui-sans-serif,system-ui,sans-serif;color:#102018;background:#f7faf8}body{margin:0}.wrap{max-width:1120px;margin:auto;padding:32px 20px}.hero{padding:56px 0}.badge{display:inline-block;background:#dff8e8;color:#095227;padding:6px 10px;border-radius:999px;font-weight:700;font-size:13px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}.card{background:white;border:1px solid #dfe9e2;border-radius:18px;padding:20px;box-shadow:0 4px 18px #1232}.muted{color:#52645a}.button{display:inline-block;background:#0b6b37;color:white;text-decoration:none;border-radius:12px;padding:12px 16px;font-weight:700;margin-right:8px;margin-top:8px}.button.secondary{background:#17342a}code{background:#edf4ef;padding:2px 5px;border-radius:6px}a{color:#0b6b37}footer{border-top:1px solid #dfe9e2;margin-top:48px;padding:24px 0;color:#52645a}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;word-break:break-all}</style>
+      :root{font-family:Inter,ui-sans-serif,system-ui,sans-serif;color:#102018;background:#f7faf8;line-height:1.45}body{margin:0}.wrap{max-width:1180px;margin:auto;padding:32px 20px}.hero{padding:48px 0}.badge{display:inline-block;background:#dff8e8;color:#095227;padding:6px 10px;border-radius:999px;font-weight:800;font-size:13px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}.card{background:white;border:1px solid #dfe9e2;border-radius:18px;padding:20px;box-shadow:0 4px 18px #1232}.muted{color:#52645a}.button{display:inline-block;background:#0b6b37;color:white;text-decoration:none;border-radius:12px;padding:12px 16px;font-weight:800;margin-right:8px;margin-top:8px;border:0;cursor:pointer}.button.secondary{background:#17342a}code{background:#edf4ef;padding:2px 5px;border-radius:6px}a{color:#0b6b37}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;word-break:break-all}.search{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0}.search input,.search select{flex:1;min-width:180px;padding:12px;border:1px solid #c9d8ce;border-radius:12px;background:white}.result{border-top:1px solid #e3eee7;padding:14px 0}.pill{display:inline-block;background:#eef7f1;border:1px solid #d5eadc;border-radius:999px;padding:3px 8px;margin:3px;font-size:12px}.warn{background:#fff8e5;border-color:#f1d178}.small{font-size:13px}.cols{columns:2 280px}footer{border-top:1px solid #dfe9e2;margin-top:48px;padding:24px 0;color:#52645a}</style>
   </head>
   <body>
     <main class="wrap">
       <section class="hero">
-        <span class="badge">Data-only contextual intelligence layer</span>
+        <span class="badge">National public-data context layer</span>
         <h1>Ireland Public Context Graph</h1>
-        <p class="muted">A provenance-first hub that collates, normalizes, versions and links public Irish datasets across transport, roads, planning, environment, weather, demographics, health, education, public services, infrastructure and local government.</p>
-        <p><strong>The project provides data and relationships only.</strong> It does not provide conclusions, causation, safety determinations, official designations, engineering assessments, legal opinions or recommendations.</p>
-        <a class="button" href="/data/context-bundle.json">Download context bundle</a>
-        <a class="button secondary" href="/mcp">Hosted MCP endpoint</a>
+        <p class="muted">A provenance-first hub that collates, versions and links public Irish datasets across transport, roads, planning, environment, weather, demographics, health, education, public services, infrastructure, economy and local government.</p>
+        <p><strong>Boundary:</strong> this project exposes data, context, provenance, missingness and relationships only. It does not produce conclusions, causation, safety determinations, engineering assessments, legal opinions or recommendations.</p>
+        <a class="button" href="/data/dataset-catalog.json">Download catalogue</a>
+        <a class="button secondary" href="/mcp">MCP instructions</a>
       </section>
       <section class="grid">
-        <div class="card"><h2>{datasetCount}</h2><p>Dataset records catalogued</p></div>
-        <div class="card"><h2>{entities.length}</h2><p>Seed graph entities generated</p></div>
-        <div class="card"><h2>{relationships.length}</h2><p>Seed relationships linked</p></div>
-        <div class="card"><h2>{manifest.version}</h2><p>Current data release</p></div>
+        <div class="card"><h2>{manifest.datasetCount?.toLocaleString?.() ?? manifest.datasetCount}</h2><p>Dataset records catalogued</p></div>
+        <div class="card"><h2>{manifest.publisherCount}</h2><p>Publishers linked</p></div>
+        <div class="card"><h2>{manifest.entityCount?.toLocaleString?.() ?? manifest.entityCount}</h2><p>Graph entities</p></div>
+        <div class="card"><h2>{manifest.relationshipCount?.toLocaleString?.() ?? manifest.relationshipCount}</h2><p>Graph relationships</p></div>
+      </section>
+      <section class="card" style="margin-top:18px">
+        <h2>Explore the catalogue</h2>
+        <p class="muted">Search runs in-browser over the generated public search index. Results are metadata and provenance pointers, not analysis.</p>
+        <div class="search">
+          <input id="q" placeholder="Search e.g. bus, flood, school, planning, hospital, traffic" />
+          <select id="domain"><option value="">All domains</option>{Object.entries(graph.domains ?? {}).map(([d,n]) => <option value={d}>{d} ({n})</option>)}</select>
+          <button class="button" id="go">Search</button>
+        </div>
+        <div id="summary" class="muted small">Loading index…</div>
+        <div id="results"></div>
+      </section>
+      <section class="grid" style="margin-top:18px">
+        <div class="card"><h2>Domains</h2><div class="cols">{Object.entries(graph.domains ?? {}).map(([d,n]) => <span class="pill">{d}: {n}</span>)}</div></div>
+        <div class="card"><h2>Graph types</h2><div class="cols">{Object.entries(graph.entityTypes ?? {}).map(([d,n]) => <span class="pill">{d}: {n}</span>)}</div></div>
       </section>
       <section>
         <h2>Hosted MCP</h2>
-        <p>Connect Claude, Codex or another remote-MCP client to the hosted endpoint once deployed:</p>
-        <p class="mono">https://ireland-public-context-graph-mcp.&lt;cloudflare-subdomain&gt;.workers.dev/mcp</p>
-        <p>The MCP exposes read-only data tools such as <code>list_datasets</code>, <code>get_dataset_metadata</code>, <code>search_entities</code>, <code>get_relationships</code>, <code>get_context_graph</code>, <code>get_data_coverage</code> and <code>get_export_links</code>.</p>
+        <p class="mono">https://ireland-public-context-graph-mcp.amreshtech.workers.dev/mcp</p>
+        <p>MCP tools include <code>search_catalog</code>, <code>get_dataset_metadata</code>, <code>get_source_records</code>, <code>search_entities</code>, <code>get_relationships</code>, <code>get_context_graph</code>, <code>get_data_coverage</code>, <code>get_graph_index</code> and <code>get_export_links</code>.</p>
       </section>
       <section>
         <h2>Data artifacts</h2>
         <div class="grid">
-          <a class="card" href="/data/dataset-catalog.json">Dataset catalogue</a>
-          <a class="card" href="/data/entities.json">Entities</a>
-          <a class="card" href="/data/relationships.json">Relationships</a>
-          <a class="card" href="/data/observations.json">Observations</a>
+          <a class="card" href="https://ireland-public-context-graph-mcp.amreshtech.workers.dev/artifacts/dataset-catalog.json">Dataset catalogue</a>
+          <a class="card" href="https://ireland-public-context-graph-mcp.amreshtech.workers.dev/artifacts/source-records.json">Source records</a>
+          <a class="card" href="/data/coverage-report.json">Coverage report</a>
+          <a class="card" href="/data/search-index.json">Search index</a>
+          <a class="card" href="https://ireland-public-context-graph-mcp.amreshtech.workers.dev/artifacts/entities.json">Entities</a>
+          <a class="card" href="https://ireland-public-context-graph-mcp.amreshtech.workers.dev/artifacts/relationships.json">Relationships</a>
+          <a class="card" href="/data/graph-index.json">Graph index</a>
           <a class="card" href="/data/manifest.json">Release manifest</a>
         </div>
       </section>
@@ -56,5 +70,14 @@ const relationships = context.relationships ?? [];
       </section>
       <footer>Generated: {manifest.generatedAt}. Source: <a href="https://github.com/the-fluid-company/ireland-public-context-graph">GitHub</a>.</footer>
     </main>
+    <script is:inline>
+      // @ts-nocheck
+      const state = { rows: [] };
+      const q = document.getElementById('q'); const domain = document.getElementById('domain'); const results = document.getElementById('results'); const summary = document.getElementById('summary');
+      function esc(s){return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+      function render(){ const query = q.value.trim().toLowerCase(); const d = domain.value; const filtered = state.rows.filter(r => (!query || r.text.includes(query)) && (!d || r.domains.includes(d))).slice(0, 25); summary.textContent = `${filtered.length} shown from ${state.rows.length.toLocaleString()} indexed datasets`; results.innerHTML = filtered.map(r => `<div class="result"><strong>${esc(r.title)}</strong><div class="muted small">${esc(r.publisher)} · ${esc(r.license)} · ${r.resourceCount} resources</div><p>${esc(r.description)}</p><div>${r.domains.map(x=>`<span class="pill">${esc(x)}</span>`).join('')} ${r.formats.slice(0,8).map(x=>`<span class="pill warn">${esc(x)}</span>`).join('')}</div><p class="small"><a href="${esc(r.sourceUrl)}">source</a> · <span class="mono">${esc(r.id)}</span></p></div>`).join(''); }
+      document.getElementById('go').addEventListener('click', render); q.addEventListener('input', render); domain.addEventListener('change', render);
+      fetch('/data/search-index.json').then(r=>r.json()).then(rows => { state.rows = rows; render(); }).catch(() => { summary.textContent = 'Search index failed to load.'; });
+    </script>
   </body>
 </html>
