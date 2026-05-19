@@ -1,8 +1,12 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { CLAIM_BOUNDARY, ContextBundle, MACHINE_READABLE_FORMATS, slug, type ContextBundle as Bundle, type Dataset, type DatasetDomain, type SourceRecord, type CoverageReport } from '@ipcg/shared';
+import { CLAIM_BOUNDARY, ContextBundle, MACHINE_READABLE_FORMATS, slug, type ContextBundle as Bundle, type Dataset, type DatasetDomain, type SourceRecord, type CoverageReport, type LayerManifest } from '@ipcg/shared';
 
 const now = new Date().toISOString();
+const GEOSPATIAL_FORMATS = new Set(['geojson','shp','gpkg','geopackage','kml','kmz','wms','wfs','arcgis geoservices rest api','esri rest','esri rest service','feature service','pmtiles','geoparquet']);
+function hasGeospatialResource(d: Dataset): boolean { return d.formats.some(f => GEOSPATIAL_FORMATS.has(f.toLowerCase())) || d.resources.some(r => GEOSPATIAL_FORMATS.has(r.format.toLowerCase()) || /geo|map|spatial|arcgis|wms|wfs/i.test(`${r.format} ${r.name} ${r.url ?? ''}`)); }
+function hasTemporalSignal(d: Dataset): boolean { return Boolean(d.metadataModified) || /daily|weekly|monthly|annual|hourly|periodic|historic|current|realtime/i.test(`${d.updateCadence} ${d.temporalCoverage}`); }
+function geographyId(value: string): string { return `geography:${slug(value.replace(/\s*\/.*/, ''))}`; }
 const domains = ['transport','roads','collisions','planning','environment','weather','demographics','health','education','public-services','infrastructure','economy','local-government','housing','energy','culture'] as const;
 const seedDatasets: Dataset[] = [
   { id:'data-gov-ie-catalog', title:'Ireland Open Data Portal catalogue', publisher:'Department of Public Expenditure, NDP Delivery and Reform', publisherId:'department-of-public-expenditure-ndp-delivery-and-reform', domains:['local-government','public-services','transport','environment','planning','health','education','economy'], sourceUrl:'https://data.gov.ie/', license:'Varies per dataset', updateCadence:'continuous', geography:'Ireland', temporalCoverage:'varies', formats:['CKAN API','CSV','GeoJSON','JSON','XML'], description:'Master catalogue used to discover and track public Irish datasets and publisher metadata.', resources:[], provenanceNotes:['Use CKAN metadata as discovery layer, not as proof of dataset quality.'] },
@@ -47,7 +51,7 @@ function resourceId(datasetId: string, r: CkanResource, i: number): string { ret
 function toDataset(pkg: CkanPackage): Dataset {
   const id = `data-gov-ie:${pkg.name}`;
   const publisher = pkg.organization?.title || pkg.organization?.name || 'Unknown publisher';
-  const resources = (pkg.resources ?? []).map((r, i) => ({ id: resourceId(id, r, i), datasetId:id, name:r.name || r.description?.slice(0,80) || r.url || `Resource ${i+1}`, format:cleanFormat(r.format), url:r.url, description:r.description?.replace(/\s+/g,' ').slice(0,160), lastModified:r.last_modified, size:r.size, mimetype:r.mimetype })).slice(0, 10);
+  const resources = (pkg.resources ?? []).map((r, i) => ({ id: resourceId(id, r, i), datasetId:id, name:r.name || r.description?.slice(0,80) || r.url || `Resource ${i+1}`, format:cleanFormat(r.format), url:r.url || undefined, description:r.description?.replace(/\s+/g,' ').slice(0,160), lastModified:r.last_modified || undefined, size:typeof r.size === 'number' ? r.size : undefined, mimetype:r.mimetype || undefined })).slice(0, 10);
   const formats = [...new Set(resources.map(r => r.format).filter(Boolean))].slice(0, 20);
   const license = pkg.license_title || pkg.license_id || 'Unspecified; verify source metadata';
   const machine = resources.some(r => MACHINE_READABLE_FORMATS.has(r.format.toLowerCase()));
@@ -72,8 +76,8 @@ function count<T extends string>(items: T[]): Record<string, number> { const m: 
 function buildCoverage(datasets: Dataset[], sourceRecords: SourceRecord[]): CoverageReport {
   return { generatedAt:now, datasetCount:datasets.length, publisherCount:new Set(datasets.map(d=>d.publisherId || slug(d.publisher))).size, domainCounts:count(datasets.flatMap(d=>d.domains)), formatCounts:count(datasets.flatMap(d=>d.formats.map(f=>f.toUpperCase()))), licenseCounts:count(datasets.map(d=>d.license || 'Unspecified')), quality:{ withResources:datasets.filter(d=>d.quality?.hasResources).length, withMachineReadableResources:datasets.filter(d=>d.quality?.hasMachineReadableResource).length, withOpenLicense:datasets.filter(d=>d.quality?.hasOpenLicense).length, withoutResources:datasets.filter(d=>!d.quality?.hasResources).length }, missingness:[
     { scope:'catalogue', note:'Catalogue records do not guarantee current source availability, licence validity or schema stability.', impact:'MCP clients should inspect source records and provenance before relying on a dataset.' },
-    { scope:'geospatial', note:'Only catalogue metadata is automatically geocoded in this release; dataset-level geometries require source-specific adapters.', impact:'Nearby-entity and map-layer answers are incomplete until geospatial adapters are added for each source.' },
-    { scope:'temporal', note:'Metadata timestamps are captured, but full historical snapshots require scheduled persisted releases.', impact:'Change-over-time reasoning should use release versions rather than assuming live catalogue values are historical truth.' },
+    { scope:'geospatial', note:'This release now flags geospatial candidate datasets and layer manifests, but source-specific geometry adapters are still required for precise joins.', impact:'Nearby-entity and map-layer answers should use geometryStatus and caveats before treating links as spatially complete.' },
+    { scope:'temporal', note:'Metadata timestamps and cadence signals are captured; source-level historical snapshots remain adapter-dependent.', impact:'Change-over-time reasoning should use versioned releases and source-specific temporal fields where available.' },
     { scope:'licensing', note:`${sourceRecords.filter(s=>/unspecified|verify|varies/i.test(s.license)).length} source records require licence verification.`, impact:'Reuse/export decisions should be conservative until source-level terms are confirmed.' }
   ] };
 }
@@ -84,27 +88,56 @@ const datasets = [...seedDatasets, ...discovered].filter(d => seen.has(d.id) ? f
 const publishers = [...new Map(datasets.map(d => [d.publisherId || slug(d.publisher), d.publisher])).entries()].sort((a,b)=>a[1].localeCompare(b[1]));
 const sourceRecords: SourceRecord[] = datasets.map(d => ({ id:`source:${d.id}`, datasetId:d.id, publisher:d.publisher, sourceUrl:d.sourceUrl, license:d.license, retrievedAt:now, metadataModified:d.metadataModified, resourceCount:d.resources.length, formats:d.formats, resourceUrls:d.resources.map(r=>r.url).filter(Boolean).slice(0,15) as string[], provenanceNotes:d.provenanceNotes }));
 const coverage = buildCoverage(datasets, sourceRecords);
+const formatValues = [...new Set(datasets.flatMap(d => d.formats.map(f => cleanFormat(f))))].sort();
+const geographyValues = [...new Set(datasets.map(d => d.geography || 'Ireland'))].sort();
+const resourceEntities: Bundle['entities'] = datasets.flatMap(d => d.resources.map(r => ({
+  id:`resource:${r.id}`, type:'resource', name:r.name, datasetIds:[d.id], properties:{ datasetId:d.id, format:r.format, url:r.url, lastModified:r.lastModified, mimetype:r.mimetype, size:r.size }
+})));
+const layerDomains = domains.filter(d => ['roads','collisions','transport','planning','environment','weather','demographics','health','education','housing','energy','infrastructure','local-government'].includes(d));
+const integrationLayerEntities: Bundle['entities'] = layerDomains.map(d => ({
+  id:`layer:${d}`, type:'integration-layer', name:`${d.replace('-', ' ')} public context layer`, datasetIds:datasets.filter(ds => ds.domains.includes(d)).slice(0,500).map(ds=>ds.id), properties:{ domain:d, datasetCount:coverage.domainCounts[d] ?? 0, geospatialCandidateCount:datasets.filter(ds => ds.domains.includes(d) && hasGeospatialResource(ds)).length }
+}));
 const entities: Bundle['entities'] = [
   { id:'country:ie', type:'country', name:'Ireland', datasetIds:['cso-statbank'], properties:{ iso2:'IE', datasetCount:datasets.length } },
   { id:'catalog:data-gov-ie', type:'catalog', name:'data.gov.ie', datasetIds:['data-gov-ie-catalog'], properties:{ endpoint:'https://data.gov.ie/api/3/action/package_search', discoveredDatasetCount: discovered.length } },
-  ...domains.map(d => ({ id:`domain:${d}`, type:'domain', name:d.replace('-', ' '), datasetIds:['data-gov-ie-catalog'], properties:{ datasetCount:coverage.domainCounts[d] ?? 0 } })),
+  ...domains.map(d => ({ id:`domain:${d}`, type:'domain', name:d.replace('-', ' '), datasetIds:['data-gov-ie-catalog'], properties:{ datasetCount:coverage.domainCounts[d] ?? 0, geospatialCandidateCount:datasets.filter(ds => ds.domains.includes(d) && hasGeospatialResource(ds)).length } })),
   ...publishers.map(([id,name]) => ({ id:`publisher:${id}`, type:'publisher', name, datasetIds:datasets.filter(d => (d.publisherId || slug(d.publisher)) === id).slice(0,200).map(d=>d.id), properties:{ datasetCount:datasets.filter(d => (d.publisherId || slug(d.publisher)) === id).length } })),
-  ...datasets.map(d => ({ id:`dataset:${d.id}`, type:'dataset', name:d.title, datasetIds:[d.id], properties:{ publisher:d.publisher, publisherId:d.publisherId, formats:d.formats, updateCadence:d.updateCadence, sourceUrl:d.sourceUrl, quality:d.quality } }))
+  ...formatValues.map(f => ({ id:`format:${slug(f)}`, type:'format', name:f, datasetIds:datasets.filter(d => d.formats.map(cleanFormat).includes(f)).slice(0,200).map(d=>d.id), properties:{ datasetCount:datasets.filter(d => d.formats.map(cleanFormat).includes(f)).length, geospatial:GEOSPATIAL_FORMATS.has(f.toLowerCase()) } })),
+  ...geographyValues.slice(0,500).map(g => ({ id:geographyId(g), type:'geography', name:g, datasetIds:datasets.filter(d => d.geography === g).slice(0,200).map(d=>d.id), properties:{ datasetCount:datasets.filter(d => d.geography === g).length } })),
+  ...integrationLayerEntities,
+  ...datasets.map(d => ({ id:`dataset:${d.id}`, type:'dataset', name:d.title, datasetIds:[d.id], properties:{ publisher:d.publisher, publisherId:d.publisherId, formats:d.formats, updateCadence:d.updateCadence, sourceUrl:d.sourceUrl, quality:d.quality, geospatialCandidate:hasGeospatialResource(d), temporalSignal:hasTemporalSignal(d) } })),
+  ...resourceEntities
 ];
 const relationships: Bundle['relationships'] = [];
 for (const ds of datasets) {
-  for (const domain of ds.domains) relationships.push({ id:`rel:${ds.id}:domain:${domain}`, subject:`dataset:${ds.id}`, predicate:'belongs_to_domain', object:`domain:${domain}`, datasetIds:[ds.id], confidence:'source', evidence:'Dataset catalogue domain classification' });
+  for (const domain of ds.domains) {
+    relationships.push({ id:`rel:${ds.id}:domain:${domain}`, subject:`dataset:${ds.id}`, predicate:'belongs_to_domain', object:`domain:${domain}`, datasetIds:[ds.id], confidence:'source', evidence:'Dataset catalogue domain classification' });
+    relationships.push({ id:`rel:${ds.id}:layer:${domain}`, subject:`dataset:${ds.id}`, predicate:'contributes_to_layer', object:`layer:${domain}`, datasetIds:[ds.id], confidence:'derived-high', evidence:'Layer membership derived from dataset domain classification' });
+  }
   const pub = `publisher:${ds.publisherId || slug(ds.publisher)}`;
   relationships.push({ id:`rel:${ds.id}:publisher`, subject:`dataset:${ds.id}`, predicate:'published_by', object:pub, datasetIds:[ds.id], confidence:'source', evidence:'CKAN organization metadata or seed source metadata' });
+  relationships.push({ id:`rel:${ds.id}:geography`, subject:`dataset:${ds.id}`, predicate:'covers_geography', object:geographyId(ds.geography), datasetIds:[ds.id], confidence:'derived-medium', evidence:'Dataset geography metadata; verify precise coverage per source record' });
+  for (const f of ds.formats.map(cleanFormat)) relationships.push({ id:`rel:${ds.id}:format:${slug(f)}`, subject:`dataset:${ds.id}`, predicate:'available_as_format', object:`format:${slug(f)}`, datasetIds:[ds.id], confidence:'source', evidence:'Dataset resource format metadata' });
+  for (const r of ds.resources) relationships.push({ id:`rel:${r.id}:dataset`, subject:`dataset:${ds.id}`, predicate:'has_resource', object:`resource:${r.id}`, datasetIds:[ds.id], confidence:'source', evidence:'CKAN resource metadata or seed source metadata' });
+  if (hasGeospatialResource(ds)) relationships.push({ id:`rel:${ds.id}:spatial-candidate`, subject:`dataset:${ds.id}`, predicate:'has_geospatial_join_potential', object:'country:ie', datasetIds:[ds.id], confidence:'derived-medium', evidence:'Derived from geospatial resource formats or spatial metadata keywords; geometry adapter required before precise spatial joins' });
+  if (hasTemporalSignal(ds)) relationships.push({ id:`rel:${ds.id}:temporal-signal`, subject:`dataset:${ds.id}`, predicate:'has_temporal_context', object:'country:ie', datasetIds:[ds.id], confidence:'derived-medium', evidence:'Derived from update cadence, temporal coverage or metadata modified timestamp' });
 }
 relationships.push({ id:'rel:catalog:indexes-country', subject:'catalog:data-gov-ie', predicate:'indexes_public_data_for', object:'country:ie', datasetIds:['data-gov-ie-catalog'], confidence:'source' });
 const observations: Bundle['observations'] = [
   { id:'obs:dataset-count', entityId:'country:ie', metric:'dataset_count', value:datasets.length, unit:'datasets', timeStart:now, datasetId:'data-gov-ie-catalog' },
   { id:'obs:publisher-count', entityId:'country:ie', metric:'publisher_count', value:publishers.length, unit:'publishers', timeStart:now, datasetId:'data-gov-ie-catalog' },
   { id:'obs:domain-count', entityId:'country:ie', metric:'domain_count', value:domains.length, unit:'domains', timeStart:now, datasetId:'data-gov-ie-catalog' },
-  { id:'obs:machine-readable-count', entityId:'country:ie', metric:'machine_readable_dataset_count', value:coverage.quality.withMachineReadableResources, unit:'datasets', timeStart:now, datasetId:'data-gov-ie-catalog' }
+  { id:'obs:machine-readable-count', entityId:'country:ie', metric:'machine_readable_dataset_count', value:coverage.quality.withMachineReadableResources, unit:'datasets', timeStart:now, datasetId:'data-gov-ie-catalog' },
+  { id:'obs:geospatial-candidate-count', entityId:'country:ie', metric:'geospatial_candidate_dataset_count', value:datasets.filter(hasGeospatialResource).length, unit:'datasets', timeStart:now, datasetId:'data-gov-ie-catalog' },
+  ...domains.map(d => ({ id:`obs:domain:${d}:dataset-count`, entityId:`domain:${d}`, metric:'dataset_count', value:coverage.domainCounts[d] ?? 0, unit:'datasets', timeStart:now, datasetId:'data-gov-ie-catalog' })),
+  ...domains.map(d => ({ id:`obs:domain:${d}:geospatial-candidate-count`, entityId:`domain:${d}`, metric:'geospatial_candidate_dataset_count', value:datasets.filter(ds => ds.domains.includes(d) && hasGeospatialResource(ds)).length, unit:'datasets', timeStart:now, datasetId:'data-gov-ie-catalog' }))
 ];
-const bundle = ContextBundle.parse({ generatedAt:now, version:now.slice(0,10), datasets:seedDatasets, entities, relationships, observations, sourceRecords:sourceRecords.slice(0, 250), coverage, disclaimers:[...CLAIM_BOUNDARY] });
+const layerManifest: LayerManifest = { generatedAt:now, layers: layerDomains.map(domain => {
+  const layerDatasets = datasets.filter(ds => ds.domains.includes(domain));
+  const spatial = layerDatasets.filter(hasGeospatialResource);
+  return { id:`layer:${domain}`, title:`${domain.replace('-', ' ')} public context layer`, domain, description:`Datasets, entities and source records relevant to ${domain.replace('-', ' ')} context in Ireland.`, entityIds:[`domain:${domain}`, `layer:${domain}`, ...spatial.slice(0,100).map(ds => `dataset:${ds.id}`)], datasetIds:layerDatasets.slice(0,1000).map(ds=>ds.id), relationshipPredicates:['belongs_to_domain','published_by','covers_geography','available_as_format','has_resource','has_geospatial_join_potential','has_temporal_context'], formats:[...new Set(layerDatasets.flatMap(ds => ds.formats.map(cleanFormat)))].sort(), geometryStatus: spatial.length ? 'candidate' : 'metadata-only', caveats: spatial.length ? ['Geospatial candidate status is inferred from formats/metadata; source-specific adapters must validate CRS, precision and geometry semantics before spatial joins.'] : ['No geospatial resource candidate detected from catalogue metadata.'] };
+}) };
+const bundle = ContextBundle.parse({ generatedAt:now, version:now.slice(0,10), datasets, entities, relationships, observations, sourceRecords, coverage, disclaimers:[...CLAIM_BOUNDARY] });
 const searchIndex = datasets.map(d => ({ id:d.id, title:d.title, publisher:d.publisher, domains:d.domains, formats:d.formats, sourceUrl:d.sourceUrl, license:d.license, description:d.description.slice(0,300), resourceCount:d.resources.length, quality:d.quality, text: `${d.title} ${d.publisher} ${d.domains.join(' ')} ${d.formats.join(' ')} ${d.description}`.toLowerCase().slice(0,2000) }));
 const graphIndex = { generatedAt:now, nodes:entities.length, edges:relationships.length, entityTypes:count(entities.map(e=>e.type)), relationshipTypes:count(relationships.map(r=>r.predicate)), domains:coverage.domainCounts };
 const publisherIndex = publishers.map(([id,name]) => ({ id, name, datasetCount:datasets.filter(d => (d.publisherId || slug(d.publisher)) === id).length })).sort((a,b)=>b.datasetCount-a.datasetCount);
@@ -120,12 +153,13 @@ const files: Record<string, unknown> = {
   'relationships.json':relationships,
   'observations.json':observations,
   'graph-index.json':graphIndex,
+  'layer-manifest.json':layerManifest,
   'publishers.json':publisherIndex,
-  'manifest.json':{version:bundle.version,generatedAt:bundle.generatedAt,files:['context-bundle.json','dataset-catalog.json','source-records.json','coverage-report.json','search-index.json','entities.json','relationships.json','observations.json','graph-index.json','publishers.json'], discoveredFromDataGovIe:discovered.length, datasetCount:datasets.length, publisherCount:publishers.length, entityCount:entities.length, relationshipCount:relationships.length}
+  'manifest.json':{version:bundle.version,generatedAt:bundle.generatedAt,files:['context-bundle.json','dataset-catalog.json','source-records.json','coverage-report.json','search-index.json','entities.json','relationships.json','observations.json','graph-index.json','layer-manifest.json','publishers.json'], discoveredFromDataGovIe:discovered.length, datasetCount:datasets.length, publisherCount:publishers.length, entityCount:entities.length, relationshipCount:relationships.length, layerCount:layerManifest.layers.length}
 };
 for (const [name, data] of Object.entries(files)) {
   const json=JSON.stringify(data);
   writeFileSync(resolve(out,name),json);
-  if (['manifest.json','coverage-report.json','graph-index.json','publishers.json','search-index.json'].includes(name)) writeFileSync(resolve(web,name),json);
+  if (['manifest.json','coverage-report.json','graph-index.json','layer-manifest.json','publishers.json','search-index.json'].includes(name)) writeFileSync(resolve(web,name),json);
 }
 console.log(`Generated ${datasets.length} catalogue datasets, ${publishers.length} publishers, ${entities.length} entities, ${relationships.length} relationships`);

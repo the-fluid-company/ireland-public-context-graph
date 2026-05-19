@@ -1,10 +1,11 @@
 import { Hono } from 'hono';
-import { normalizeSearch, type ContextBundle, type Dataset, type SourceRecord, type CoverageReport } from '@ipcg/shared';
+import { normalizeSearch, type ContextBundle, type Dataset, type SourceRecord, type CoverageReport, type LayerManifest } from '@ipcg/shared';
 import { seedBundle } from './seed-data';
 
 type Env = { DATA_BASE_URL?: string; ARTIFACT_BASE_URL?: string; SERVICE_NAME?: string; SERVICE_VERSION?: string; CONTEXT_DB?: D1Database; DATA_BUCKET?: R2Bucket; CONTEXT_KV?: KVNamespace };
 type SearchRow = Pick<Dataset, 'id'|'title'|'publisher'|'domains'|'formats'|'sourceUrl'|'license'|'description'|'quality'> & { resourceCount:number; text:string };
 type GraphIndex = { generatedAt:string; nodes:number; edges:number; entityTypes:Record<string,number>; relationshipTypes:Record<string,number>; domains:Record<string,number> };
+type RelatedDataset = Pick<Dataset, 'id'|'title'|'publisher'|'domains'|'formats'|'sourceUrl'|'license'|'description'|'quality'> & { score:number; reasons:string[] };
 
 const app = new Hono<{ Bindings: Env }>();
 app.use('*', async (c, next) => {
@@ -34,6 +35,7 @@ async function loadSearch(env: Env): Promise<SearchRow[]> { return loadJson(env,
 async function loadSources(env: Env): Promise<SourceRecord[]> { return loadJson(env, 'source-records.json', [] as SourceRecord[]); }
 async function loadCoverage(env: Env): Promise<CoverageReport | undefined> { return loadJson(env, 'coverage-report.json', undefined as CoverageReport | undefined); }
 async function loadGraphIndex(env: Env): Promise<GraphIndex | undefined> { return loadJson(env, 'graph-index.json', undefined as GraphIndex | undefined); }
+async function loadLayerManifest(env: Env): Promise<LayerManifest | undefined> { return loadJson(env, 'layer-manifest.json', undefined as LayerManifest | undefined); }
 function jsonRpc(id: unknown, result: unknown) { return { jsonrpc: '2.0', id, result }; }
 function jsonRpcError(id: unknown, code: number, message: string) { return { jsonrpc: '2.0', id, error: { code, message } }; }
 function claim(disclaimers?: string[]) { return disclaimers ?? seedBundle.disclaimers; }
@@ -51,6 +53,9 @@ function tools() { return [
   { name:'get_context_graph', description:'Get entities, relationships, observations, provenance and claim-boundary notes for entity IDs or a query. No conclusions are generated.', inputSchema:{ type:'object', properties:{ entity_ids:{ type:'array', items:{type:'string'} }, query:{ type:'string' }, limit:{ type:'number' } } } },
   { name:'get_data_coverage', description:'Return dataset/domain/source coverage and known missingness notes.', inputSchema:{ type:'object', properties:{ domain:{ type:'string' } } } },
   { name:'get_graph_index', description:'Return graph-size and relationship/domain summaries.', inputSchema:{ type:'object', properties:{} } },
+  { name:'get_layer_manifest', description:'Return public context layers, candidate geospatial joins, formats and caveats.', inputSchema:{ type:'object', properties:{ domain:{ type:'string' } } } },
+  { name:'find_related_datasets', description:'Find datasets related by shared domains, publisher, formats, geospatial readiness and graph relationships. Returns evidence only, not conclusions.', inputSchema:{ type:'object', properties:{ dataset_id:{ type:'string' }, limit:{ type:'number' } }, required:['dataset_id'] } },
+  { name:'get_entity_neighborhood', description:'Return one-hop graph neighborhood around an entity with observations and provenance notes.', inputSchema:{ type:'object', properties:{ entity_id:{ type:'string' }, predicate:{ type:'string' }, limit:{ type:'number' } }, required:['entity_id'] } },
   { name:'get_export_links', description:'Return download links for static data artifacts.', inputSchema:{ type:'object', properties:{} } }
 ]; }
 
@@ -60,6 +65,26 @@ async function searchCatalog(args: any, env: Env) {
   const filtered = rows.filter(d => (!q || normalizeSearch(d.text).includes(q)) && (!domain || d.domains.includes(domain as any)) && (!publisher || normalizeSearch(d.publisher).includes(publisher)) && (!format || d.formats.some(f => normalizeSearch(f).includes(format))));
   const start = offset(args); const limit = pageLimit(args, 50, 500);
   return { totalAvailable: rows.length, totalMatched: filtered.length, offset:start, limit, datasets: filtered.slice(start, start+limit).map(({text, ...d}) => d), disclaimers: claim(b.disclaimers) };
+}
+
+
+async function findRelatedDatasets(args: any, env: Env) {
+  const b = await loadBundle(env); const datasets = await loadDatasets(env); const target = datasets.find(d => d.id === args.dataset_id);
+  if (!target) return { dataset:null, related:[], disclaimers:claim(b.disclaimers) };
+  const targetFormats = new Set(target.formats.map(f => normalizeSearch(f)));
+  const targetDomains = new Set(target.domains);
+  const rows: RelatedDataset[] = datasets.filter(d => d.id !== target.id).map(d => {
+    const reasons: string[] = []; let score = 0;
+    const sharedDomains = d.domains.filter(x => targetDomains.has(x));
+    if (sharedDomains.length) { score += sharedDomains.length * 5; reasons.push(`shared domain: ${sharedDomains.join(', ')}`); }
+    if ((d.publisherId || normalizeSearch(d.publisher)) === (target.publisherId || normalizeSearch(target.publisher))) { score += 4; reasons.push('same publisher'); }
+    const sharedFormats = d.formats.filter(f => targetFormats.has(normalizeSearch(f))).slice(0,5);
+    if (sharedFormats.length) { score += Math.min(sharedFormats.length, 3); reasons.push(`shared format: ${sharedFormats.join(', ')}`); }
+    if (d.quality?.hasMachineReadableResource && target.quality?.hasMachineReadableResource) { score += 1; reasons.push('both machine-readable'); }
+    if ((d as any).properties?.geospatialCandidate || d.formats.some(f => /geo|shp|kml|wms|wfs|arcgis/i.test(f))) { score += target.formats.some(f => /geo|shp|kml|wms|wfs|arcgis/i.test(f)) ? 2 : 0; if (target.formats.some(f => /geo|shp|kml|wms|wfs|arcgis/i.test(f))) reasons.push('both geospatial candidates'); }
+    return { id:d.id, title:d.title, publisher:d.publisher, domains:d.domains, formats:d.formats, sourceUrl:d.sourceUrl, license:d.license, description:d.description, quality:d.quality, score, reasons };
+  }).filter(r => r.score > 0).sort((a,b) => b.score - a.score || a.title.localeCompare(b.title)).slice(0, pageLimit(args, 25, 100));
+  return { dataset:target, related:rows, caveat:'Relatedness is metadata-derived. Use source records and geospatial adapters before treating relationships as spatial or causal.', disclaimers:claim(b.disclaimers) };
 }
 
 async function callTool(name: string, args: any, env: Env) {
@@ -78,11 +103,19 @@ async function callTool(name: string, args: any, env: Env) {
   }
   if (name === 'get_data_coverage') { const coverage = await loadCoverage(env); if (!coverage) return { generatedAt:b.generatedAt, datasetCount:b.datasets.length, missingness:[{ scope:'runtime', note:'Full coverage-report.json artifact was not available; using seed bundle fallback.', impact:'Coverage is incomplete until data artifacts are loaded from R2 or Pages.' }], disclaimers:claim(b.disclaimers) }; return { ...coverage, disclaimers:claim(b.disclaimers) }; }
   if (name === 'get_graph_index') return { graphIndex:await loadGraphIndex(env), disclaimers:claim(b.disclaimers) };
-  if (name === 'get_export_links') { const base = env.ARTIFACT_BASE_URL || 'https://ireland-public-context-graph-mcp.amreshtech.workers.dev/artifacts'; const files = ['context-bundle.json','dataset-catalog.json','source-records.json','coverage-report.json','search-index.json','entities.json','relationships.json','observations.json','graph-index.json','publishers.json','manifest.json']; return { links: files.map(f => ({ name:f, url:`${base}/${f}` })), disclaimers:claim(b.disclaimers) }; }
+  if (name === 'get_layer_manifest') {
+    const loaded = await loadLayerManifest(env);
+    const fallbackDomains = [...new Set(b.datasets.flatMap(d => d.domains))];
+    const manifest = loaded ?? { generatedAt:b.generatedAt, layers:fallbackDomains.map(domain => ({ id:`layer:${domain}`, title:`${domain.replace('-', ' ')} public context layer`, domain, description:`Fallback layer generated from seed bundle for ${domain.replace('-', ' ')}.`, entityIds:[`domain:${domain}`], datasetIds:b.datasets.filter(d => d.domains.includes(domain as any)).map(d => d.id), relationshipPredicates:['belongs_to_domain','published_by'], formats:[...new Set(b.datasets.filter(d => d.domains.includes(domain as any)).flatMap(d => d.formats))], geometryStatus:'metadata-only' as const, caveats:['Full layer-manifest.json artifact was not available; using seed bundle fallback.'] })) };
+    return { layerManifest: args?.domain ? { ...manifest, layers: manifest.layers.filter(l => l.domain === args.domain || l.id === `layer:${args.domain}`) } : manifest, disclaimers:claim(b.disclaimers) };
+  }
+  if (name === 'find_related_datasets') return findRelatedDatasets(args, env);
+  if (name === 'get_entity_neighborhood') { const limit = pageLimit(args, 200, 1000); const center = b.entities.find(e => e.id === args.entity_id) ?? null; const relationships = b.relationships.filter(r => (r.subject === args.entity_id || r.object === args.entity_id) && (!args.predicate || r.predicate === args.predicate)).slice(0, limit); const ids = new Set([args.entity_id, ...relationships.flatMap(r => [r.subject, r.object])]); return { center, entities:b.entities.filter(e => ids.has(e.id)), relationships, observations:b.observations.filter(o => ids.has(o.entityId)), disclaimers:claim(b.disclaimers) }; }
+  if (name === 'get_export_links') { const base = env.ARTIFACT_BASE_URL || 'https://ireland-public-context-graph-mcp.amreshtech.workers.dev/artifacts'; const files = ['context-bundle.json','dataset-catalog.json','source-records.json','coverage-report.json','search-index.json','entities.json','relationships.json','observations.json','graph-index.json','layer-manifest.json','publishers.json','manifest.json']; return { links: files.map(f => ({ name:f, url:`${base}/${f}` })), disclaimers:claim(b.disclaimers) }; }
   throw new Error(`Unknown tool: ${name}`);
 }
 
-app.get('/', c => c.json({ name:c.env.SERVICE_NAME ?? 'Ireland Public Context Graph', version:c.env.SERVICE_VERSION ?? '0.1.0', endpoints:['/health','/mcp','/api/search','/api/datasets/:id','/api/entities/:id','/api/context','/api/coverage','/api/exports'], claimBoundary:'data/context only; no conclusions' }));
+app.get('/', c => c.json({ name:c.env.SERVICE_NAME ?? 'Ireland Public Context Graph', version:c.env.SERVICE_VERSION ?? '0.1.0', endpoints:['/health','/mcp','/api/search','/api/datasets/:id','/api/entities/:id','/api/context','/api/layers','/api/related/:dataset_id','/api/coverage','/api/exports'], claimBoundary:'data/context only; no conclusions' }));
 app.get('/health', c => c.json({ ok:true, service:c.env.SERVICE_NAME ?? 'Ireland Public Context Graph' }));
 app.get('/api/search', async c => c.json(await searchCatalog({ query:c.req.query('q'), domain:c.req.query('domain'), publisher:c.req.query('publisher'), format:c.req.query('format'), limit:c.req.query('limit') ?? 50, offset:c.req.query('offset') ?? 0 }, c.env)));
 app.get('/api/datasets', async c => c.json(await searchCatalog({ query:c.req.query('q'), domain:c.req.query('domain'), limit:c.req.query('limit') ?? 100, offset:c.req.query('offset') ?? 0 }, c.env)));
@@ -91,6 +124,8 @@ app.get('/api/sources', async c => c.json(await callTool('get_source_records', {
 app.get('/api/entities', async c => c.json(await callTool('search_entities', { query:c.req.query('q') ?? 'ireland', type:c.req.query('type'), limit:c.req.query('limit') ?? 100 }, c.env)));
 app.get('/api/entities/:id', async c => c.json(await callTool('get_entity', { entity_id:c.req.param('id') }, c.env)));
 app.get('/api/context', async c => c.json(await callTool('get_context_graph', { query:c.req.query('q') ?? 'ireland', limit:c.req.query('limit') ?? 10 }, c.env)));
+app.get('/api/layers', async c => c.json(await callTool('get_layer_manifest', { domain:c.req.query('domain') }, c.env)));
+app.get('/api/related/:dataset_id', async c => c.json(await callTool('find_related_datasets', { dataset_id:c.req.param('dataset_id'), limit:c.req.query('limit') ?? 25 }, c.env)));
 app.get('/api/coverage', async c => c.json(await callTool('get_data_coverage', {}, c.env)));
 app.get('/api/exports', async c => c.json(await callTool('get_export_links', {}, c.env)));
 app.get('/artifacts/:file', async c => {

@@ -40,6 +40,9 @@ The hosted MCP exposes read-only data tools:
 - `get_entity`
 - `get_relationships`
 - `get_context_graph`
+- `get_entity_neighborhood`
+- `find_related_datasets`
+- `get_layer_manifest`
 - `get_data_coverage`
 - `get_export_links`
 
@@ -53,6 +56,7 @@ The site publishes static JSON artifacts under `/data/`:
 - `entities.json`
 - `relationships.json`
 - `observations.json`
+- `layer-manifest.json`
 
 ## Development
 
