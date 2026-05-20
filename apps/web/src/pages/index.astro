@@ -1,152 +1,251 @@
 ---
 const manifest = await import('../../public/data/manifest.json').then(m => m.default).catch(() => ({ generatedAt:'pending', datasetCount:0, publisherCount:0, realWorldNodeCount:0, realWorldRelationshipCount:0, brainIssueCount:0, brainFactorCount:0, brainEvidenceEdgeCount:0 }));
-const brain = await import('../../public/data/brain-index.json').then(m => m.default).catch(() => ({ issues:[], issueCount:0, factorCount:0, evidenceEdgeCount:0 }));
 const updatedLabel = (() => {
   const d = new Date(manifest.generatedAt);
   if (Number.isNaN(d.getTime())) return 'update pending';
   return new Intl.DateTimeFormat('en-IE', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit', timeZone:'UTC', timeZoneName:'short' }).format(d);
 })();
 const layers = [
-  { group:'Weather & water', items:['Rainfall','Rivers / streams','Ground already soaked','Flood zones'], active:3, total:4 },
-  { group:'Roads & safety', items:['Roads','School zones','Collisions','Crossings'], active:2, total:4 },
-  { group:'Places & services', items:['Schools','Health services','Public facilities','Population'], active:3, total:4 },
-  { group:'Planning context', items:['Planning applications','Housing','Land use','Transport access'], active:2, total:4 }
+  { id:'flood', group:'Water & flooding', items:['Rainfall context','Rivers & drainage','Flood records','Ground conditions'], domains:['weather','environment','infrastructure'], color:'#087f72' },
+  { id:'roads', group:'Roads & safety', items:['Road network','School zones','Collisions','Traffic counters'], domains:['roads','transport','collisions'], color:'#266fb4' },
+  { id:'services', group:'Public services', items:['Schools','Health services','Public facilities','Population need'], domains:['education','health','public-services','demographics'], color:'#278b51' },
+  { id:'planning', group:'Planning & change', items:['Planning applications','Housing','Land use','Infrastructure works'], domains:['planning','housing','local-government','energy'], color:'#b46f06' }
 ];
-const examples = ['Why is flooding happening in Tallaght?','Is this road dangerous near a school?','What services are missing nearby?','What changed in this area?'];
+const examples = ['Tallaght flooding','road danger near a school','public services in Galway','planning changes near Dublin'];
 ---
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Ireland Public Context Map</title>
-  <meta name="description" content="A map-first public data explorer for ordinary people to see how Irish places, public sources and possible reasons connect." />
+  <meta name="description" content="A real map-first public context explorer for ordinary people to see how Irish places, public data layers and evidence relationships connect." />
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.9.0/dist/maplibre-gl.css" />
+  <script src="https://unpkg.com/maplibre-gl@5.9.0/dist/maplibre-gl.js"></script>
   <style>
-    :root{--bg:#f6f3e8;--panel:rgba(255,255,252,.88);--panel2:rgba(255,255,255,.96);--line:rgba(27,100,91,.22);--line2:rgba(27,100,91,.12);--text:#102623;--muted:#5c716d;--cyan:#087f72;--blue:#266fb4;--amber:#b46f06;--green:#278b51;--orange:#c45d2c;--purple:#6e59b7;--danger:#bd3d52;--shadow:0 24px 70px rgba(20,55,48,.14);font-family:"Aptos","Segoe UI",system-ui,sans-serif;color:var(--text);background:var(--bg)}
-    *{box-sizing:border-box} body{margin:0;min-height:100vh;background:radial-gradient(circle at 48% 38%,rgba(8,127,114,.12),transparent 23rem),radial-gradient(circle at 74% 65%,rgba(38,111,180,.1),transparent 26rem),linear-gradient(135deg,#fbfaf2,#eef5ee);overflow-x:hidden} button,input{font:inherit} button{cursor:pointer} a{color:var(--cyan)}
-    .shell{min-height:100vh;display:grid;grid-template-rows:auto 1fr auto;position:relative;isolation:isolate}.map{position:fixed;inset:0;z-index:-2;background:linear-gradient(135deg,#f9f7ec,#e7f2ee)}.map:before{content:"";position:absolute;inset:0;background-image:linear-gradient(rgba(27,100,91,.08) 1px,transparent 1px),linear-gradient(90deg,rgba(27,100,91,.07) 1px,transparent 1px);background-size:54px 54px;mask-image:radial-gradient(circle at center,#000 20%,transparent 82%)}.map:after{content:"";position:absolute;inset:0;background:radial-gradient(circle at 28% 42%,rgba(39,139,81,.38) 0 4px,transparent 5px),radial-gradient(circle at 42% 33%,rgba(180,111,6,.38) 0 5px,transparent 6px),radial-gradient(circle at 55% 57%,rgba(8,127,114,.45) 0 6px,transparent 7px),radial-gradient(circle at 63% 39%,rgba(196,93,44,.36) 0 5px,transparent 6px),radial-gradient(circle at 71% 61%,rgba(110,89,183,.34) 0 5px,transparent 6px),radial-gradient(circle at 38% 70%,rgba(38,111,180,.34) 0 5px,transparent 6px));filter:drop-shadow(0 0 9px rgba(8,127,114,.35))}.ireland-map{position:fixed;left:38%;top:16%;width:min(48vw,620px);height:auto;opacity:.72;z-index:-1;filter:drop-shadow(0 22px 44px rgba(27,100,91,.13))}.route{stroke-dasharray:6 10;animation:dash 18s linear infinite}@keyframes dash{to{stroke-dashoffset:-220}}
-    .topbar{display:grid;grid-template-columns:280px 1fr minmax(440px,520px);gap:14px;align-items:center;padding:14px 16px 8px}.brand,.status,.search{border:1px solid var(--line);background:linear-gradient(180deg,rgba(255,255,255,.94),rgba(248,250,244,.84));box-shadow:var(--shadow);backdrop-filter:blur(14px);border-radius:18px}.brand{padding:14px 16px}.brand h1{margin:0;font-size:32px;letter-spacing:.04em;line-height:.85}.brand p{margin:7px 0 0;color:var(--muted);font:800 11px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.16em;text-transform:uppercase}.status{display:flex;justify-content:center;gap:18px;padding:12px 16px;font:800 12px ui-monospace,SFMono-Regular,Menlo,monospace;text-transform:uppercase;color:var(--muted)}.status b{color:var(--cyan)}.status .live{color:var(--green)}.search{padding:10px;display:flex;gap:8px}.search input{width:100%;border:1px solid rgba(27,100,91,.18);background:rgba(255,255,255,.78);color:var(--text);border-radius:13px;padding:12px 13px;outline:0}.search input:focus{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(8,127,114,.12)}.search button,.primary{border:0;background:var(--cyan);color:white;border-radius:13px;padding:11px 14px;font:950 12px ui-monospace,SFMono-Regular,Menlo,monospace;text-transform:uppercase;white-space:nowrap}
-    .workspace{display:grid;grid-template-columns:330px 1fr 390px;gap:14px;padding:8px 16px 12px;min-height:calc(100vh - 142px)}.panel{border:1px solid var(--line);background:var(--panel);backdrop-filter:blur(16px);box-shadow:var(--shadow);border-radius:22px;overflow:hidden}.panel-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 15px;border-bottom:1px solid var(--line2);font:900 12px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.14em;text-transform:uppercase;color:#173c36}.count{color:var(--cyan)}.layer-body{padding:10px;display:grid;gap:10px}.layer-group{border:1px solid rgba(27,100,91,.12);background:rgba(255,255,255,.58);border-radius:16px;overflow:hidden}.group-title{display:flex;justify-content:space-between;align-items:center;padding:11px 12px;color:#173c36;font-weight:850}.group-title span{font:800 11px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--amber)}.layer{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;border-top:1px solid rgba(27,100,91,.1);color:var(--muted);font-size:14px}.toggle{width:34px;height:18px;border-radius:999px;background:rgba(27,100,91,.14);position:relative}.toggle:after{content:"";position:absolute;top:3px;left:3px;width:12px;height:12px;border-radius:50%;background:#8c9d99}.layer.on{color:var(--text)}.layer.on .toggle{background:rgba(8,127,114,.2)}.layer.on .toggle:after{left:19px;background:var(--cyan);box-shadow:0 0 10px rgba(8,127,114,.35)}
-    .center{display:flex;align-items:end;justify-content:center;position:relative}.hero-card{width:min(620px,100%);margin-bottom:18px;border:1px solid var(--line);background:linear-gradient(180deg,rgba(255,255,252,.84),rgba(245,250,246,.9));backdrop-filter:blur(18px);border-radius:30px;box-shadow:var(--shadow);padding:20px}.hero-card .kicker{font:900 12px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--cyan);letter-spacing:.18em;text-transform:uppercase}.hero-card h2{font-size:clamp(34px,4.8vw,58px);line-height:.9;letter-spacing:-.06em;margin:12px 0 14px}.hero-card p{font-size:16px;color:#35534e;max-width:680px;margin:0}.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}.chip{border:1px solid rgba(8,127,114,.24);background:rgba(8,127,114,.08);color:#113f38;border-radius:999px;padding:9px 12px;font-size:13px}.map-label{position:absolute;border:1px solid var(--line);background:rgba(255,255,252,.78);backdrop-filter:blur(10px);border-radius:14px;padding:9px 11px;font:800 12px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--cyan);box-shadow:0 14px 30px rgba(27,100,91,.1)}.label-a{left:10%;top:17%}.label-b{right:18%;top:35%;color:var(--amber)}.label-c{left:25%;bottom:32%;color:var(--green)}
-    .right{display:grid;grid-template-rows:auto 1fr;gap:14px}.tools{padding-bottom:12px}.tool-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;padding:12px}.tool{border:1px solid rgba(27,100,91,.12);background:rgba(255,255,255,.58);border-radius:16px;padding:12px;color:var(--text);min-height:76px}.tool b{display:block;color:var(--cyan);font:900 11px ui-monospace,SFMono-Regular,Menlo,monospace;text-transform:uppercase;letter-spacing:.1em}.tool span{display:block;color:var(--muted);font-size:13px;margin-top:5px}.answer{padding:14px;overflow:auto}.answer-kicker{display:flex;justify-content:space-between;gap:10px;align-items:center;margin:-14px -14px 14px;padding:13px 14px;border-bottom:1px solid var(--line2);font:900 11px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.13em;text-transform:uppercase;color:#173c36}.answer-kicker b{color:var(--cyan);font:inherit}.answer-title{font-size:31px;line-height:1;margin:0 0 10px;letter-spacing:-.04em}.summary{border:1px solid rgba(8,127,114,.18);background:rgba(8,127,114,.07);border-radius:18px;padding:13px;color:#1c4c44;margin:10px 0 12px}.trail{list-style:none;padding:0;margin:10px 0;display:grid;gap:8px}.trail li{border:1px solid rgba(27,100,91,.12);background:rgba(255,255,255,.68);border-radius:15px;padding:11px;color:#243f3a}.trail b{color:var(--cyan)}.reason-list{display:grid;gap:9px;margin-top:12px}.reason{border:1px solid rgba(27,100,91,.12);background:rgba(255,255,255,.7);border-radius:16px;padding:12px}.reason h4{margin:0;color:#102623;font-size:17px}.reason p{margin:6px 0 0;color:var(--muted);font-size:13px}.badge{float:right;border:1px solid rgba(39,139,81,.25);background:rgba(39,139,81,.09);color:#1f743f;border-radius:999px;padding:4px 7px;font:900 10px ui-monospace,SFMono-Regular,Menlo,monospace;text-transform:uppercase}.sources summary{margin-top:8px;color:var(--cyan);font:900 12px ui-monospace,SFMono-Regular,Menlo,monospace;cursor:pointer}.source-link{display:block;margin-top:7px;border-left:3px solid var(--cyan);padding:8px 9px;background:rgba(8,127,114,.05);border-radius:0 10px 10px 0;text-decoration:none;color:#143d37}.source-link span{color:var(--muted);font-size:12px}.empty{color:var(--muted)}
-    .bottombar{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;padding:0 16px 14px}.metric{border:1px solid var(--line);background:rgba(255,255,252,.86);backdrop-filter:blur(12px);border-radius:16px;padding:10px 12px;text-decoration:none}.metric span{display:block;color:var(--muted);font:850 10px ui-monospace,SFMono-Regular,Menlo,monospace;text-transform:uppercase;letter-spacing:.13em}.metric b{display:block;color:var(--text);font-size:20px;margin-top:2px}.dev{display:none}.dev summary{list-style:none;border:1px solid var(--line);background:rgba(255,255,252,.9);border-radius:999px;padding:9px 12px;font:900 11px ui-monospace,SFMono-Regular,Menlo,monospace;text-transform:uppercase;color:var(--muted);cursor:pointer}.dev-links{margin-top:8px;background:var(--panel2);border:1px solid var(--line);border-radius:16px;padding:10px;display:grid;gap:8px}.dev-links a{font-size:13px;text-decoration:none}.mobile-note{display:none}
-    @media(max-width:1100px){body{overflow:auto}.topbar,.workspace{grid-template-columns:1fr}.workspace{min-height:auto}.left{order:2}.center{min-height:520px;order:1}.right{order:3}.bottombar{grid-template-columns:repeat(2,1fr)}.ireland-map{left:12%;top:18%;width:76vw}.status{justify-content:flex-start;overflow:auto}.dev{position:static;margin:0 16px 14px}.map-label{display:none}}
-    @media(max-width:620px){.topbar,.workspace{padding-left:10px;padding-right:10px}.brand h1{font-size:25px}.search{flex-direction:column}.hero-card{padding:20px}.hero-card h2{font-size:42px}.bottombar{grid-template-columns:1fr}.tool-grid{grid-template-columns:1fr}.mobile-note{display:block;color:var(--muted);font-size:13px;margin-top:10px}}
+    :root{--bg:#f5f2e8;--panel:rgba(255,255,251,.92);--panel2:#fffffb;--line:rgba(20,84,78,.22);--line2:rgba(20,84,78,.12);--text:#102623;--muted:#657771;--teal:#087f72;--blue:#266fb4;--green:#278b51;--amber:#b46f06;--red:#bd3d52;--shadow:0 22px 70px rgba(17,55,48,.18);font-family:"Aptos","Segoe UI",system-ui,sans-serif;color:var(--text);background:var(--bg)}
+    *{box-sizing:border-box} body{margin:0;min-height:100vh;overflow:hidden;background:var(--bg)} button,input{font:inherit} button{cursor:pointer} a{color:var(--teal)}
+    #map{position:fixed;inset:0;background:#edf2ea}.maplibregl-ctrl-bottom-left,.maplibregl-ctrl-bottom-right{display:none}.maplibregl-popup-content{border-radius:14px;border:1px solid var(--line);box-shadow:var(--shadow);padding:0;background:var(--panel2);color:var(--text)}
+    .app{position:relative;z-index:2;min-height:100vh;display:grid;grid-template-rows:auto 1fr auto;pointer-events:none}.topbar,.workspace,.bottombar,.dev{pointer-events:none}.topbar>* ,.workspace>* ,.bottombar>* ,.dev{pointer-events:auto}
+    .topbar{display:grid;grid-template-columns:260px minmax(340px,1fr) minmax(360px,520px);gap:12px;align-items:center;padding:12px}.brand,.status,.search,.panel,.metric,.dev{border:1px solid var(--line);background:linear-gradient(180deg,rgba(255,255,251,.96),rgba(248,250,244,.9));box-shadow:var(--shadow);backdrop-filter:blur(16px);border-radius:18px}.brand{padding:12px 14px}.brand h1{margin:0;font-size:28px;line-height:.9;letter-spacing:-.03em}.brand p{margin:6px 0 0;color:var(--muted);font:850 10px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.16em;text-transform:uppercase}.status{display:flex;gap:16px;align-items:center;justify-content:center;min-height:60px;padding:10px 14px;color:var(--muted);font:850 11px ui-monospace,SFMono-Regular,Menlo,monospace;text-transform:uppercase;overflow:hidden}.status b{color:var(--teal)}.status .live{color:var(--green)}
+    .search{display:flex;gap:8px;padding:9px}.search input{width:100%;border:1px solid rgba(20,84,78,.18);background:rgba(255,255,255,.82);border-radius:13px;padding:12px;outline:0;color:var(--text)}.search input:focus{border-color:var(--teal);box-shadow:0 0 0 3px rgba(8,127,114,.13)}.search button,.primary{border:0;background:var(--teal);color:white;border-radius:13px;padding:11px 14px;font:950 11px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
+    .workspace{display:grid;grid-template-columns:330px 1fr 410px;gap:12px;padding:0 12px 10px;min-height:0}.center{position:relative;min-width:0}.panel{overflow:hidden}.panel-head{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:13px 14px;border-bottom:1px solid var(--line2);font:900 11px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.13em;text-transform:uppercase;color:#173c36}.count{color:var(--teal)}
+    .left,.right{align-self:start;max-height:calc(100vh - 154px);display:grid;gap:10px}.left{overflow:auto}.right{grid-template-rows:auto minmax(300px,1fr);overflow:hidden}.panel-body{padding:10px;display:grid;gap:9px}.layer-group{border:1px solid rgba(20,84,78,.12);background:rgba(255,255,255,.62);border-radius:16px;overflow:hidden}.layer-title{display:flex;align-items:center;justify-content:space-between;padding:11px 12px;font-weight:850}.layer-title span{display:inline-flex;align-items:center;gap:7px}.dot{width:10px;height:10px;border-radius:50%;background:var(--teal);box-shadow:0 0 0 4px rgba(8,127,114,.09)}.layer-title small{font:850 10px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--amber)}.layer-items{padding:0 12px 11px;color:var(--muted);font-size:13px;line-height:1.5}.layer-toggle{width:100%;border:0;background:transparent;color:inherit;text-align:left;padding:0}.layer-group.off{opacity:.52}.switch{width:38px;height:20px;border-radius:999px;background:rgba(20,84,78,.14);position:relative}.switch:after{content:"";position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:#8fa19c;transition:.2s}.layer-group:not(.off) .switch{background:rgba(8,127,114,.22)}.layer-group:not(.off) .switch:after{left:21px;background:var(--teal);box-shadow:0 0 10px rgba(8,127,114,.3)}
+    .map-help{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);width:min(680px,92%);border:1px solid var(--line);background:rgba(255,255,251,.87);backdrop-filter:blur(16px);box-shadow:var(--shadow);border-radius:24px;padding:16px;pointer-events:auto}.map-help h2{margin:0 0 8px;font-size:34px;line-height:.95;letter-spacing:-.05em}.map-help p{margin:0;color:#36524d;line-height:1.45}.chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.chip{border:1px solid rgba(8,127,114,.25);background:rgba(8,127,114,.08);color:#113f38;border-radius:999px;padding:8px 11px;font-size:12px}.coords{position:absolute;right:10px;bottom:10px;padding:7px 9px;border:1px solid var(--line);background:rgba(255,255,251,.84);border-radius:999px;font:800 10px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--muted);pointer-events:auto}
+    .tool-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;padding:10px}.tool{border:1px solid rgba(20,84,78,.12);background:rgba(255,255,255,.62);border-radius:15px;padding:11px;text-align:left;color:var(--text);min-height:70px}.tool b{display:block;color:var(--teal);font:900 10px ui-monospace,SFMono-Regular,Menlo,monospace;text-transform:uppercase;letter-spacing:.1em}.tool span{display:block;color:var(--muted);font-size:12px;margin-top:5px}.answer{overflow:auto;min-height:0}.answer-inner{padding:14px}.kicker{display:flex;justify-content:space-between;gap:10px;color:var(--muted);font:900 10px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.13em;text-transform:uppercase}.kicker b{color:var(--teal)}.answer h2{margin:9px 0 8px;font-size:30px;line-height:1;letter-spacing:-.04em}.summary{border:1px solid rgba(8,127,114,.18);background:rgba(8,127,114,.07);border-radius:17px;padding:12px;color:#1c4c44;line-height:1.4}.relationship{margin-top:12px;display:grid;gap:8px}.rel-row{display:grid;grid-template-columns:24px 1fr;gap:9px;align-items:start;border:1px solid rgba(20,84,78,.12);background:rgba(255,255,255,.68);border-radius:15px;padding:10px;color:#274640}.rel-row i{display:grid;place-items:center;width:24px;height:24px;border-radius:999px;background:rgba(8,127,114,.1);color:var(--teal);font-style:normal;font-weight:900}.rel-row span{display:block;color:var(--muted);font-size:12px;margin-top:2px}.reason-list{display:grid;gap:8px;margin-top:12px}.reason{border:1px solid rgba(20,84,78,.12);background:rgba(255,255,255,.7);border-radius:15px;padding:11px}.reason h3{font-size:16px;margin:0}.reason p{margin:5px 0 0;color:var(--muted);font-size:13px}.badge{float:right;border:1px solid rgba(39,139,81,.25);background:rgba(39,139,81,.09);color:#1f743f;border-radius:999px;padding:4px 7px;font:900 9px ui-monospace,SFMono-Regular,Menlo,monospace;text-transform:uppercase}.sources summary{margin-top:8px;color:var(--teal);font:900 11px ui-monospace,SFMono-Regular,Menlo,monospace;cursor:pointer}.source-link{display:block;margin-top:7px;border-left:3px solid var(--teal);padding:7px 9px;background:rgba(8,127,114,.06);border-radius:10px;text-decoration:none}.source-link strong{font-size:12px}.source-link span{font-size:11px;color:var(--muted)}.empty{color:var(--muted);line-height:1.5}.pill-row{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}.pill{border:1px solid var(--line2);background:rgba(255,255,255,.64);border-radius:999px;padding:6px 8px;color:var(--muted);font:850 10px ui-monospace,SFMono-Regular,Menlo,monospace;text-transform:uppercase}
+    .bottombar{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;padding:0 12px 12px}.metric{padding:9px 11px;text-decoration:none}.metric span{display:block;color:var(--muted);font:850 9px ui-monospace,SFMono-Regular,Menlo,monospace;text-transform:uppercase;letter-spacing:.13em}.metric b{display:block;color:var(--text);font-size:18px;margin-top:2px}.dev{display:none;position:absolute;right:12px;bottom:64px;padding:8px 10px;font:900 10px ui-monospace,SFMono-Regular,Menlo,monospace;text-transform:uppercase;color:var(--muted)}
+    .popup{padding:11px;max-width:260px}.popup b{display:block;color:var(--teal);font-size:14px}.popup span{display:block;color:var(--muted);font-size:12px;margin-top:4px}.popup button{margin-top:9px;border:0;border-radius:10px;background:var(--teal);color:white;padding:7px 9px;font:900 10px ui-monospace,SFMono-Regular,Menlo,monospace;text-transform:uppercase}
+    @media(max-width:1150px){body{overflow:auto}.app{display:block}.topbar,.workspace,.bottombar{grid-template-columns:1fr}.workspace{padding:0 10px 10px}.left,.right{max-height:none}.center{height:560px;order:-1}.map-help{position:absolute}.bottombar{grid-template-columns:repeat(2,1fr)}#map{position:absolute;height:560px;top:210px}.topbar{padding:10px}.status{justify-content:flex-start;overflow:auto}.dev{position:static;margin:0 10px 10px;display:inline-block}}
+    @media(max-width:620px){.search{flex-direction:column}.brand h1{font-size:24px}.map-help h2{font-size:28px}.tool-grid{grid-template-columns:1fr}.bottombar{grid-template-columns:1fr}.status{font-size:10px}}
   </style>
 </head>
 <body>
-  <main class="shell">
-    <div class="map" aria-hidden="true"></div>
-    <svg class="ireland-map" viewBox="0 0 520 620" aria-hidden="true">
-      <path d="M284 12c63 25 55 80 94 111 39 31 96 26 112 79 15 49-31 78-22 126 10 65 67 100 39 158-25 53-91 43-132 80-43 39-48 100-116 101-60 1-76-59-122-80-49-22-116 1-143-52-29-55 24-97 35-154 12-58-29-116 1-166 33-54 103-42 148-81 45-40 36-146 106-122Z" fill="rgba(255,255,252,.46)" stroke="rgba(8,127,114,.48)" stroke-width="3" />
-      <path class="route" d="M98 192c89 31 183 40 294 21M73 336c118-22 246-3 365 60M207 124c-20 119 31 240 133 369" fill="none" stroke="rgba(38,111,180,.32)" stroke-width="8" stroke-linecap="round" />
-      <circle cx="265" cy="292" r="9" fill="#087f72"><animate attributeName="r" values="7;15;7" dur="2.8s" repeatCount="indefinite" /></circle>
-    </svg>
-
+  <div id="map" aria-label="Interactive map of Ireland public context layers"></div>
+  <main class="app">
     <header class="topbar">
-      <section class="brand"><h1>IRELAND<br/>CONTEXT</h1><p>Public data situational map</p></section>
-      <section class="status"><span>SYS: <b class="live">LIVE</b></span><span>Sources: <b>{manifest.publisherCount}</b></span><span>Updated: <b>{updatedLabel}</b></span><span>Advisory: <b>Context only</b></span></section>
-      <section class="search"><input id="q" value="Why is flooding happening in Tallaght?" aria-label="Ask about a place or issue" /><button id="askBtn">Map context</button></section>
+      <section class="brand"><h1>Ireland<br/>Context Map</h1><p>Public evidence explorer</p></section>
+      <section class="status"><span>Status: <b class="live">live map</b></span><span>Sources: <b>{manifest.publisherCount}</b></span><span>Updated: <b>{updatedLabel}</b></span><span>Use: <b>context only</b></span></section>
+      <section class="search"><input id="q" value="Tallaght flooding" aria-label="Search for a place, issue or public data topic" /><button id="askBtn">Search</button></section>
     </header>
 
     <section class="workspace">
-      <aside class="panel left">
-        <div class="panel-head"><span>Public data layers</span><span class="count">10 / 16</span></div>
-        <div class="layer-body">
-          {layers.map(group => <div class="layer-group"><div class="group-title">{group.group}<span>{group.active}/{group.total}</span></div>{group.items.map((item, i) => <div class:list={['layer', i < group.active && 'on']}><span>{item}</span><span class="toggle" aria-hidden="true"></span></div>)}</div>)}
-        </div>
+      <aside class="left">
+        <section class="panel">
+          <div class="panel-head"><span>Visible public layers</span><span class="count" id="layerCount">4 / 4</span></div>
+          <div class="panel-body">
+            {layers.map(group => <button class="layer-toggle" data-layer={group.id} aria-pressed="true"><div class="layer-group"><div class="layer-title"><span><i class="dot" style={`background:${group.color}`}></i>{group.group}</span><div class="switch" aria-hidden="true"></div></div><div class="layer-items">{group.items.join(' · ')}</div></div></button>)}
+          </div>
+        </section>
+        <section class="panel">
+          <div class="panel-head"><span>Places on map</span><span class="count" id="visibleCount">loading</span></div>
+          <div class="panel-body" id="entityList"><p class="empty">Loading graph entities…</p></div>
+        </section>
       </aside>
 
       <section class="center">
-        <span class="map-label label-a">Schools + roads</span>
-        <span class="map-label label-b">Rain + rivers</span>
-        <span class="map-label label-c">Public services</span>
-        <div class="hero-card">
-          <div class="kicker">For ordinary people, not data engineers</div>
-          <h2>See what public data says about a place.</h2>
-          <p>Choose a question, turn public layers on and off, then inspect the evidence trail: what place you asked about, what possible reasons may matter, and which public records support the context.</p>
+        <div class="map-help" id="mapHelp">
+          <h2>Click the map to see relationships.</h2>
+          <p>This is now a real MapLibre map. Layer toggles control visible civic data overlays. Selecting a place or entity draws relationship lines and opens plain-English public evidence.</p>
           <div class="chips">{examples.map(x => <button class="chip" data-question={x}>{x}</button>)}</div>
-          <p class="mobile-note">On desktop this behaves like an operations map. On mobile, panels stack into a simple evidence reader.</p>
         </div>
+        <div class="coords" id="coords">Move over map</div>
       </section>
 
       <aside class="right">
-        <section class="panel tools">
+        <section class="panel">
           <div class="panel-head"><span>Explorer tools</span><span class="count">plain English</span></div>
           <div class="tool-grid">
-            <button class="tool"><b>Explain area</b><span>Summarise possible public context.</span></button>
-            <button class="tool"><b>Show evidence</b><span>Open source links and caveats.</span></button>
-            <button class="tool"><b>Find nearby</b><span>Schools, services, roads, rivers.</span></button>
-            <button class="tool"><b>What's missing</b><span>See weak or absent evidence.</span></button>
+            <button class="tool" data-tool="explain"><b>Explain area</b><span>Show possible context for the selected place.</span></button>
+            <button class="tool" data-tool="evidence"><b>Show evidence</b><span>Open public source links and caveats.</span></button>
+            <button class="tool" data-tool="nearby"><b>Find nearby</b><span>Fly to related places and services.</span></button>
+            <button class="tool" data-tool="missing"><b>What's missing</b><span>Show where source adapters are still needed.</span></button>
           </div>
         </section>
-        <section class="panel answer" id="answer"><p class="empty">Loading public context…</p></section>
+        <section class="panel answer" id="answer"><div class="answer-inner"><p class="empty">Loading public context…</p></div></section>
       </aside>
     </section>
 
     <section class="bottombar" aria-label="Public graph summary">
       <div class="metric"><span>Datasets</span><b>{manifest.datasetCount?.toLocaleString?.() ?? manifest.datasetCount}</b></div>
+      <div class="metric"><span>Publishers</span><b>{manifest.publisherCount?.toLocaleString?.() ?? manifest.publisherCount}</b></div>
       <div class="metric"><span>Real-world nodes</span><b>{manifest.realWorldNodeCount?.toLocaleString?.() ?? manifest.realWorldNodeCount}</b></div>
       <div class="metric"><span>Relationships</span><b>{manifest.realWorldRelationshipCount?.toLocaleString?.() ?? manifest.realWorldRelationshipCount}</b></div>
-      <div class="metric"><span>Question types</span><b>{manifest.brainIssueCount ?? brain.issueCount}</b></div>
-      <div class="metric"><span>Possible reasons</span><b>{manifest.brainFactorCount ?? brain.factorCount}</b></div>
-      <div class="metric"><span>Evidence links</span><b>{manifest.brainEvidenceEdgeCount ?? brain.evidenceEdgeCount}</b></div>
-      <a class="metric dev-metric" href="/mcp"><span>Developer</span><b>API / MCP</b></a>
+      <div class="metric"><span>Possible reasons</span><b>{manifest.brainFactorCount ?? 0}</b></div>
+      <a class="metric" href="/mcp"><span>Developer</span><b>API / MCP</b></a>
     </section>
-
-    <details class="dev"><summary>Developer access</summary><div class="dev-links"><a href="https://ireland-public-context-graph-mcp.amreshtech.workers.dev/api/ask?q=Why%20is%20flooding%20happening%20in%20Tallaght">Ask API</a><a href="https://ireland-public-context-graph-mcp.amreshtech.workers.dev/api/real-world-graph?q=school&limit=10">Graph API</a><a href="/mcp">MCP instructions</a><a href="https://github.com/the-fluid-company/ireland-public-context-graph">GitHub</a></div></details>
   </main>
+  <details class="dev"><summary>Developer access</summary><a href="/mcp">MCP/API instructions</a></details>
 
-  <script is:inline>
+  <script type="module" is:inline>
     // @ts-nocheck
-    const state = { brain:null, selected:null };
+    const LAYER_DEFS = {
+      flood:{ label:'Water & flooding', domains:['weather','environment','infrastructure'], color:'#087f72', coords:[-6.37,53.30] },
+      roads:{ label:'Roads & safety', domains:['roads','transport','collisions'], color:'#266fb4', coords:[-6.25,53.34] },
+      services:{ label:'Public services', domains:['education','health','public-services','demographics'], color:'#278b51', coords:[-8.47,53.27] },
+      planning:{ label:'Planning & change', domains:['planning','housing','local-government','energy'], color:'#b46f06', coords:[-6.26,53.35] }
+    };
+    const PLACE_COORDS = {
+      'ireland':[-7.9,53.35], 'dublin':[-6.2603,53.3498], 'tallaght':[-6.3774,53.2867], 'south dublin':[-6.3774,53.2867], 'fingal':[-6.22,53.52], 'cork':[-8.4756,51.8985], 'galway':[-9.0568,53.2707], 'limerick':[-8.6267,52.6638], 'waterford':[-7.1119,52.2593], 'sligo':[-8.4761,54.2766], 'kerry':[-9.75,52.16], 'mayo':[-9.3,53.85], 'local authority areas':[-7.35,53.15], 'national roads and counters':[-7.15,53.38]
+    };
+    const TYPE_OFFSET = { issue:[0,0], factor:[.08,.04], asset:[-.08,.05], condition:[.05,-.08], event:[-.05,-.08], service:[.1,.1], agency:[-.1,.1], place:[0,0] };
+    const state = { map:null, graph:null, brain:null, active:{flood:true,roads:true,services:true,planning:true}, selected:null, popup:null, features:[], nodeById:new Map(), relsByNode:new Map() };
     const q = document.getElementById('q');
     const answer = document.getElementById('answer');
-    const norm = s => String(s ?? '').toLowerCase();
+    const entityList = document.getElementById('entityList');
+    const visibleCount = document.getElementById('visibleCount');
+    const layerCount = document.getElementById('layerCount');
+    const coords = document.getElementById('coords');
     const esc = s => String(s ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const norm = s => String(s ?? '').toLowerCase();
+    const hash = s => [...String(s)].reduce((n,ch)=>((n*31)+ch.charCodeAt(0))>>>0,7);
+    const fmtPredicate = p => ({can_be_joined_spatially_with:'can be checked on a map with', covers_place:'covers this place', published_by:'is published by', describes:'describes', located_in:'is located in', observed_in:'is observed in', has_possible_factor:'has possible reason', supports_factor:'supports possible reason', has_time_context_from:'has time context from'}[p] || String(p||'is related to').replaceAll('_',' '));
+    function domainLayer(domains=[]){ return Object.entries(LAYER_DEFS).find(([,d]) => domains.some(x => d.domains.includes(x)))?.[0] || 'services'; }
+    function coordFor(node, index){
+      const label = norm(node.label); const id = norm(node.id).replace(/^[^:]+:/,'').replaceAll('-',' ');
+      for (const [k,v] of Object.entries(PLACE_COORDS)) if (label.includes(k) || id.includes(k)) return v;
+      const layer = LAYER_DEFS[domainLayer(node.domains||[])]; const o = TYPE_OFFSET[node.type] || [0,0]; const h = hash(node.id);
+      return [layer.coords[0] + o[0] + (((h%17)-8)*0.035), layer.coords[1] + o[1] + ((((h/17)|0)%17-8)*0.025)];
+    }
+    function layerColor(id){ return LAYER_DEFS[id]?.color || '#087f72'; }
+    function strengthText(s){ return s === 'strong' ? 'strong evidence' : s === 'medium' ? 'some evidence' : s === 'weak' ? 'limited evidence' : 'evidence unclear'; }
     function simpleFactorLabel(label){
       const map = {'Rainfall intensity and duration':'Heavy rain','River level and upstream/downstream cascade':'Rivers and streams rising','Soil saturation and infiltration capacity':'Ground already soaked','Elevation, slope and flow paths':'Low ground and slopes','Impervious surface and land cover':'Concrete, roads and hard surfaces','Drainage, culverts and road barriers':'Drains, culverts and road layout'};
       return map[label] || label;
     }
-    function strengthText(s){ return s === 'strong' ? 'strong evidence' : s === 'medium' ? 'some evidence' : s === 'weak' ? 'limited evidence' : 'evidence unclear'; }
-    function scoreIssue(issue, query){
-      const text = norm(`${issue.id} ${issue.label} ${(issue.examples||[]).join(' ')} ${(issue.factors||[]).map(f=>`${f.label} ${f.description} ${(f.keywords||[]).join(' ')}`).join(' ')}`);
-      return norm(query).split(/[^a-z0-9-]+/).filter(Boolean).reduce((n,t)=>n+(text.includes(t)?(t.length>3?3:1):0), text.includes(norm(query))?10:0);
-    }
-    function chooseIssue(){
+    function issueForQuery(){
       const issues = state.brain?.issues || [];
-      const ranked = [...issues].map(issue=>({issue,score:scoreIssue(issue,q.value)})).sort((a,b)=>b.score-a.score);
-      return ranked[0]?.score > 0 ? ranked[0].issue : issues[0];
+      const text = norm(q.value);
+      const ranked = issues.map(issue => ({issue, score:norm(`${issue.id} ${issue.label} ${(issue.examples||[]).join(' ')} ${(issue.factors||[]).map(f=>`${f.label} ${f.description} ${(f.keywords||[]).join(' ')}`).join(' ')}`).split(/\s+/).reduce((n)=>n,0)}));
+      return issues.find(i => text.includes('flood') && norm(i.id).includes('flood')) || issues.find(i => text.includes('road') && norm(i.id).includes('road')) || issues.find(i => text.includes('service') && norm(i.id).includes('service')) || issues.find(i => text.includes('planning') && norm(i.id).includes('planning')) || issues[0];
     }
-    function inferredPlace(query){
-      const known = ['Tallaght','Dublin','Cork','Galway','Limerick','Waterford','Sligo','Fingal','South Dublin','Dún Laoghaire','Kerry','Mayo'];
-      return known.find(place => norm(query).includes(norm(place))) || 'your place';
+    function inferredPlace(){
+      const text = norm(q.value);
+      return Object.keys(PLACE_COORDS).find(k => text.includes(k)) || 'Ireland';
     }
-    function render(){
-      const issue = chooseIssue();
-      if(!issue){ answer.innerHTML = '<p class="empty">No public context loaded yet.</p>'; return; }
-      const factors = issue.factors || [];
-      const top = factors[0] || {};
-      const source = (top.evidenceDatasets||[])[0] || {};
-      const place = inferredPlace(q.value);
-      const reason = simpleFactorLabel(top.label || 'a possible reason');
-      const names = factors.slice(0,4).map(f => String(simpleFactorLabel(f.label)||'').toLowerCase());
-      answer.innerHTML = `
-        <div class="answer-kicker"><span>Selected context:</span><b>${esc(place)}</b></div>
-        <h2 class="answer-title">${esc(String(issue.label || '').replace(/ context$/i,''))}</h2>
-        <div class="summary">This question may be related to ${esc(names.join(', '))}. These are possible reasons to investigate, not official conclusions.</div>
-        <ul class="trail">
-          <li><b>Your question:</b> asks about ${esc(place)}.<br/><span>${esc(q.value)}</span></li>
-          <li><b>One possible reason:</b> ${esc(reason.toLowerCase())} could be part of the context.<br/><span>This is a lead to inspect, not a final answer.</span></li>
-          <li><b>Evidence to inspect:</b> ${esc(source.title || 'a linked public source')}.<br/><span>Published by ${esc(source.publisher || 'a public body')}.</span></li>
-        </ul>
+    function buildGraphIndexes(graph){
+      const baseNodes = (graph.nodes||[]).map((n,i)=>({...n, coords:coordFor(n,i), layerId:domainLayer(n.domains||[])}));
+      const virtualPlaces = Object.entries(PLACE_COORDS).filter(([k]) => !['ireland','local authority areas','national roads and counters'].includes(k)).map(([name,coords]) => ({
+        id:`place:${name.replaceAll(' ','-')}`, type:'place', label:name.replace(/\b\w/g,c=>c.toUpperCase()),
+        description:'Searchable place anchor for inspecting nearby public-data context on the map.', domains:['local-government','public-services','roads','environment'], coords, layerId:'flood', virtual:true
+      }));
+      state.nodeById = new Map([...virtualPlaces, ...baseNodes].map(n=>[n.id,n]));
+      state.relsByNode = new Map();
+      for (const r of (graph.relationships||[])) {
+        for (const key of [r.subject,r.object]) {
+          if (!state.relsByNode.has(key)) state.relsByNode.set(key,[]);
+          state.relsByNode.get(key).push(r);
+        }
+      }
+      state.features = [...state.nodeById.values()].map(n => ({type:'Feature', geometry:{type:'Point', coordinates:n.coords}, properties:{id:n.id,label:n.label,type:n.type,layerId:n.layerId,description:n.description||'', domains:(n.domains||[]).join(', ')}}));
+    }
+    function emptyFc(){ return {type:'FeatureCollection',features:[]}; }
+    function visibleFeatures(){ return state.features.filter(f => state.active[f.properties.layerId]); }
+    function updateMapData(){
+      if (!state.map?.getSource('entities')) return;
+      const features = visibleFeatures();
+      state.map.getSource('entities').setData({type:'FeatureCollection',features});
+      visibleCount.textContent = `${features.length} visible`;
+      layerCount.textContent = `${Object.values(state.active).filter(Boolean).length} / 4`;
+      renderList(features.slice(0,18));
+      updateRelationshipLines();
+    }
+    function renderList(features){
+      const rank = {place:0, service:1, asset:2, issue:3, factor:4, condition:5, event:6, agency:7};
+      const sorted = [...features].sort((a,b)=>(rank[a.properties.type]??9)-(rank[b.properties.type]??9) || String(a.properties.label).localeCompare(String(b.properties.label)));
+      entityList.innerHTML = sorted.map(f => `<button class="tool entity-btn" data-node="${esc(f.properties.id)}"><b>${esc(f.properties.type)}</b><span>${esc(f.properties.label)}</span></button>`).join('') || '<p class="empty">No visible entities. Turn on a layer.</p>';
+      entityList.querySelectorAll('[data-node]').forEach(b => b.onclick = () => selectNode(b.dataset.node, true));
+    }
+    function connectedRels(nodeId){
+      const direct = (state.relsByNode.get(nodeId)||[]).filter(r => state.nodeById.has(r.subject) && state.nodeById.has(r.object));
+      const node = state.nodeById.get(nodeId);
+      if (!node?.virtual) return direct.slice(0,18);
+      const wanted = ['asset:roads','asset:schools','asset:water-rivers-drainage','condition:rainfall-weather','service:health-services','service:public-facilities','event:collision-events','issue:flood-context'];
+      const synthetic = wanted.filter(id => state.nodeById.has(id)).map(id => ({id:`virtual:${nodeId}:${id}`, subject:nodeId, predicate:'can_be_joined_spatially_with', object:id, confidence:'place-context', evidence:'map selection', caveats:['local adapter required']}));
+      return synthetic.concat(direct).slice(0,18);
+    }
+    function updateRelationshipLines(){
+      if (!state.map?.getSource('relations')) return;
+      const rels = state.selected ? connectedRels(state.selected.id).filter(r => state.active[state.nodeById.get(r.subject)?.layerId] || state.active[state.nodeById.get(r.object)?.layerId]) : [];
+      state.map.getSource('relations').setData({type:'FeatureCollection',features:rels.map(r=>({type:'Feature',geometry:{type:'LineString',coordinates:[state.nodeById.get(r.subject).coords,state.nodeById.get(r.object).coords]},properties:{predicate:r.predicate,confidence:r.confidence||'derived'}}))});
+    }
+    function renderAnswer(node){
+      const issue = issueForQuery(); const factors = issue?.factors || []; const rels = connectedRels(node.id); const place = inferredPlace();
+      const shownRels = rels.slice(0,4).map(r => {
+        const otherId = r.subject === node.id ? r.object : r.subject; const other = state.nodeById.get(otherId);
+        return `<div class="rel-row"><i>↔</i><div><b>${esc(node.label)} ${esc(fmtPredicate(r.predicate))} ${esc(other?.label || otherId)}.</b><br/><span>Evidence: ${esc(r.confidence || 'derived')} · ${esc(r.evidence || 'public-data relationship')} · not an official conclusion</span></div></div>`;
+      }).join('');
+      answer.innerHTML = `<div class="answer-inner">
+        <div class="kicker"><span>Selected: ${esc(node.type)} · Layer: ${esc(LAYER_DEFS[node.layerId]?.label || node.layerId)}</span></div>
+        <h2>${esc(node.label)}</h2>
+        <div class="summary">${esc(node.description || 'Public graph entity.')} The visible lines show public-data relationships that can be inspected, not causal findings.</div>
+        <div class="pill-row">${(node.domains||[]).slice(0,6).map(d=>`<span class="pill">${esc(d)}</span>`).join(' ')}</div>
+        <div class="relationship">${shownRels || '<p class="empty">No connected visible relationships found for this selection yet.</p>'}</div>
         <div class="reason-list">
-          ${factors.slice(0,3).map(f => `<article class="reason"><span class="badge">${esc(strengthText(f.strongestEvidence))}</span><h4>${esc(simpleFactorLabel(f.label))}</h4><p>${esc(f.description || 'This may be relevant to the question.')}</p><details class="sources"><summary>Show public sources</summary>${(f.evidenceDatasets||[]).slice(0,3).map(e => `<a class="source-link" href="${esc(e.sourceUrl)}" target="_blank" rel="noreferrer"><strong>${esc(e.title)}</strong><br/><span>${esc(e.publisher)} · ${esc(e.license || 'licence to verify')}</span></a>`).join('') || '<p class="empty">No strong public source linked yet.</p>'}</details></article>`).join('')}
-        </div>`;
+          ${factors.slice(0,3).map(f => `<article class="reason"><span class="badge">${esc(strengthText(f.strongestEvidence))}</span><h3>${esc(simpleFactorLabel(f.label))}</h3><p>${esc(f.description || 'This may be relevant to the question.')}</p><details class="sources"><summary>Evidence to inspect</summary>${(f.evidenceDatasets||[]).slice(0,3).map(e => `<a class="source-link" href="${esc(e.sourceUrl)}" target="_blank" rel="noreferrer"><strong>${esc(e.title)}</strong><br/><span>${esc(e.publisher)} · ${esc(e.license || 'licence to verify')}</span></a>`).join('') || '<p class="empty">No strong public source linked yet.</p>'}</details></article>`).join('')}
+        </div>
+        <details class="sources"><summary>What is still unknown</summary><p class="empty">Some relationships are metadata-derived and marked as adapter-required. Exact street-level truth needs source-specific geospatial and temporal joins.</p></details>
+      </div>`;
     }
-    document.getElementById('askBtn').onclick = () => render();
-    q.addEventListener('keydown', e => { if(e.key === 'Enter') render(); });
-    document.querySelectorAll('[data-question]').forEach(b => b.onclick = () => { q.value = b.dataset.question; render(); });
-    fetch('/data/brain-index.json').then(r=>r.json()).then(data=>{state.brain=data;render();}).catch(()=>{answer.innerHTML='<p class="empty">Brain data failed to load.</p>';});
+    function selectNode(id, fly=false){
+      const node = state.nodeById.get(id); if (!node) return; state.selected = node; renderAnswer(node); updateRelationshipLines();
+      if (fly && state.map) state.map.flyTo({center:node.coords, zoom: node.type === 'place' ? 8 : 7.2, duration:800});
+    }
+    function selectForQuery(){
+      const text = norm(q.value); let chosen = [...state.nodeById.values()].find(n => text.includes(norm(n.label)) || norm(n.label).includes(text));
+      if (!chosen) {
+        const place = inferredPlace(); chosen = [...state.nodeById.values()].find(n => norm(n.label).includes(place)) || [...state.nodeById.values()].find(n => n.type === 'place') || [...state.nodeById.values()][0];
+      }
+      selectNode(chosen.id, true);
+    }
+    function initMap(){
+      if (!window.maplibregl) { answer.innerHTML = '<div class="answer-inner"><p class="empty">Map library failed to load.</p></div>'; return; }
+      const map = new maplibregl.Map({ container:'map', style:'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json', center:[-7.75,53.25], zoom:6.25, minZoom:5, maxZoom:15, attributionControl:false });
+      state.map = map;
+      map.addControl(new maplibregl.NavigationControl({visualizePitch:true}), 'bottom-left');
+      map.on('mousemove', e => { coords.textContent = `${e.lngLat.lat.toFixed(4)}, ${e.lngLat.lng.toFixed(4)}`; });
+      map.on('load', () => {
+        map.addSource('relations', {type:'geojson', data:emptyFc()});
+        map.addSource('entities', {type:'geojson', data:emptyFc(), cluster:true, clusterRadius:38, clusterMaxZoom:8});
+        map.addLayer({id:'relations-line', type:'line', source:'relations', paint:{'line-color':'#087f72','line-width':['interpolate',['linear'],['zoom'],5,1.5,10,4],'line-opacity':.56,'line-dasharray':[2,2]}});
+        map.addLayer({id:'clusters', type:'circle', source:'entities', filter:['has','point_count'], paint:{'circle-color':'#ffffff','circle-stroke-color':'#087f72','circle-stroke-width':2,'circle-radius':['step',['get','point_count'],16,10,21,30,27],'circle-opacity':.94}});
+        map.addLayer({id:'cluster-count', type:'symbol', source:'entities', filter:['has','point_count'], layout:{'text-field':['get','point_count_abbreviated'],'text-size':12}, paint:{'text-color':'#102623'}});
+        map.addLayer({id:'entity-glow', type:'circle', source:'entities', filter:['!', ['has','point_count']], paint:{'circle-radius':['interpolate',['linear'],['zoom'],5,9,10,18],'circle-color':['match',['get','layerId'],'flood','#087f72','roads','#266fb4','services','#278b51','planning','#b46f06','#087f72'],'circle-opacity':.13,'circle-blur':.9}});
+        map.addLayer({id:'entity-points', type:'circle', source:'entities', filter:['!', ['has','point_count']], paint:{'circle-radius':['interpolate',['linear'],['zoom'],5,5,10,9],'circle-color':['match',['get','layerId'],'flood','#087f72','roads','#266fb4','services','#278b51','planning','#b46f06','#087f72'],'circle-stroke-width':2,'circle-stroke-color':'#fffffb','circle-opacity':.88}});
+        map.addLayer({id:'entity-labels', type:'symbol', source:'entities', minzoom:7, filter:['!', ['has','point_count']], layout:{'text-field':['get','label'],'text-size':11,'text-offset':[0,1.3],'text-anchor':'top','text-max-width':12}, paint:{'text-color':'#102623','text-halo-color':'#fffffb','text-halo-width':1.4}});
+        map.on('click','entity-points', e => { const f=e.features?.[0]; if (f) selectNode(f.properties.id); });
+        map.on('click','clusters', async e => { const f=e.features?.[0]; const id=f?.properties?.cluster_id; const z=await map.getSource('entities').getClusterExpansionZoom(id); map.easeTo({center:f.geometry.coordinates,zoom:z}); });
+        map.on('mouseenter','entity-points',()=>map.getCanvas().style.cursor='pointer'); map.on('mouseleave','entity-points',()=>map.getCanvas().style.cursor='');
+        updateMapData(); selectForQuery();
+      });
+    }
+    async function loadData(){
+      const [graph, brain] = await Promise.all([fetch('/data/real-world-graph.json').then(r=>r.json()), fetch('/data/brain-index.json').then(r=>r.json())]);
+      state.graph = graph; state.brain = brain; buildGraphIndexes(graph); if (state.map?.loaded()) { updateMapData(); selectForQuery(); }
+    }
+    document.querySelectorAll('[data-layer]').forEach(btn => btn.onclick = () => { const id=btn.dataset.layer; state.active[id]=!state.active[id]; btn.setAttribute('aria-pressed', String(state.active[id])); btn.querySelector('.layer-group')?.classList.toggle('off', !state.active[id]); updateMapData(); });
+    document.querySelectorAll('[data-question]').forEach(b => b.onclick = () => { q.value = b.dataset.question; selectForQuery(); });
+    document.getElementById('askBtn').onclick = () => selectForQuery(); q.addEventListener('keydown', e => { if(e.key === 'Enter') selectForQuery(); });
+    document.querySelectorAll('[data-tool]').forEach(b => b.onclick = () => { if (state.selected) { renderAnswer(state.selected); if (b.dataset.tool === 'evidence') answer.querySelector('details.sources')?.setAttribute('open',''); } });
+    initMap(); loadData().catch(err => { console.error(err); answer.innerHTML = '<div class="answer-inner"><p class="empty">Public context data failed to load.</p></div>'; });
   </script>
 </body>
 </html>
