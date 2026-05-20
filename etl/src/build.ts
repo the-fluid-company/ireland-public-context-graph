@@ -141,6 +141,72 @@ const bundle = ContextBundle.parse({ generatedAt:now, version:now.slice(0,10), d
 const searchIndex = datasets.map(d => ({ id:d.id, title:d.title, publisher:d.publisher, domains:d.domains, formats:d.formats, sourceUrl:d.sourceUrl, license:d.license, description:d.description.slice(0,300), resourceCount:d.resources.length, quality:d.quality, text: `${d.title} ${d.publisher} ${d.domains.join(' ')} ${d.formats.join(' ')} ${d.description}`.toLowerCase().slice(0,2000) }));
 const graphIndex = { generatedAt:now, nodes:entities.length, edges:relationships.length, entityTypes:count(entities.map(e=>e.type)), relationshipTypes:count(relationships.map(r=>r.predicate)), domains:coverage.domainCounts };
 const publisherIndex = publishers.map(([id,name]) => ({ id, name, datasetCount:datasets.filter(d => (d.publisherId || slug(d.publisher)) === id).length })).sort((a,b)=>b.datasetCount-a.datasetCount);
+
+type BrainFactor = { id:string; label:string; relationship:string; domains:DatasetDomain[]; keywords:string[]; requiredEvidence:string[]; missingIfAbsent:string; description:string };
+type BrainIssue = { id:string; label:string; examples:string[]; factors:BrainFactor[] };
+type BrainEvidenceDataset = { datasetId:string; title:string; publisher:string; domains:DatasetDomain[]; formats:string[]; sourceUrl:string; license:string; score:number; evidenceStrength:'strong'|'medium'|'weak'; reasons:string[]; caveats:string[] };
+type BrainFactorCard = BrainFactor & { evidenceDatasets:BrainEvidenceDataset[]; evidenceCount:number; strongestEvidence:'strong'|'medium'|'weak'|'missing'; missing:boolean };
+type BrainIssueCard = { id:string; label:string; examples:string[]; factors:BrainFactorCard[]; missingEvidence:string[]; relationshipTypes:string[]; agentPrompt:string };
+const brainIssues: BrainIssue[] = [
+  { id:'flood-context', label:'Flood context', examples:['Why is flooding happening here?','What factors could contribute to flood risk around this place?'], factors:[
+    { id:'rainfall-intensity', label:'Rainfall intensity and duration', relationship:'candidate_contributing_factor', domains:['weather','environment'], keywords:['rainfall','precipitation','rain','weather','storm','met eireann','forecast'], requiredEvidence:['current and recent rainfall','forecast rainfall','station or gridded weather coverage'], missingIfAbsent:'No rainfall/precipitation source is connected yet.', description:'Heavy or prolonged rainfall can increase runoff and river levels.' },
+    { id:'river-level-upstream', label:'River level and upstream/downstream cascade', relationship:'candidate_contributing_factor', domains:['environment','infrastructure'], keywords:['river','gauge','water level','hydrometric','opw','catchment','stream','upstream','downstream'], requiredEvidence:['gauge readings','river network topology','upstream/downstream travel time'], missingIfAbsent:'River gauge and cascade evidence is incomplete.', description:'Upstream river levels can propagate downstream over time.' },
+    { id:'soil-saturation', label:'Soil saturation and infiltration capacity', relationship:'candidate_contributing_factor', domains:['weather','environment'], keywords:['soil','saturation','groundwater','infiltration','moisture','karst','peat'], requiredEvidence:['soil moisture','groundwater probability','soil/geology layer'], missingIfAbsent:'Soil/groundwater evidence is missing or not yet joined.', description:'Saturated or low-infiltration ground increases surface runoff.' },
+    { id:'terrain-flow-path', label:'Elevation, slope and flow paths', relationship:'candidate_contributing_factor', domains:['environment','planning','infrastructure'], keywords:['lidar','elevation','dem','slope','topographic','flow','terrain'], requiredEvidence:['DEM/LiDAR','slope','flow accumulation'], missingIfAbsent:'DEM/LiDAR flow-path processing is not yet available.', description:'Low elevation and local slope determine where water can accumulate or move.' },
+    { id:'impervious-surface', label:'Impervious surface and land cover', relationship:'candidate_contributing_factor', domains:['planning','environment','housing'], keywords:['land cover','corine','impervious','built up','urban','surface','development','zoning'], requiredEvidence:['land cover','built-up surfaces','planning/development change'], missingIfAbsent:'Land-cover/impervious-surface evidence is incomplete.', description:'Built surfaces reduce absorption and increase runoff.' },
+    { id:'drainage-road-barriers', label:'Drainage, culverts and road barriers', relationship:'candidate_contributing_factor', domains:['roads','infrastructure','local-government'], keywords:['drainage','culvert','road','roads','bridge','stormwater','gully','asset','public lighting','crossing'], requiredEvidence:['drainage assets','culvert/bridge data','road network barriers'], missingIfAbsent:'Drainage/culvert data is often missing from public catalogues.', description:'Roads, embankments and drainage capacity can redirect or block flows.' }
+  ]},
+  { id:'road-safety-context', label:'Road safety context', examples:['Is this road unsafe?','What public evidence explains collision concentration here?'], factors:[
+    { id:'collision-history', label:'Collision and casualty history', relationship:'supporting_context', domains:['collisions','roads','transport'], keywords:['collision','casualty','accident','road safety','rsa'], requiredEvidence:['collision records','severity','date/time'], missingIfAbsent:'Collision source is missing or not granular enough.', description:'Historic collisions are evidence of prior safety performance, not proof of current fault.' },
+    { id:'traffic-exposure', label:'Traffic volume and exposure', relationship:'normalisation_factor', domains:['transport','roads'], keywords:['traffic','aadt','counter','vehicle','volume','tii'], requiredEvidence:['traffic counts','road segment','time period'], missingIfAbsent:'Exposure denominator is missing.', description:'Collision counts need traffic exposure to avoid misleading comparisons.' },
+    { id:'road-design-context', label:'Road layout and vulnerable-user infrastructure', relationship:'candidate_contributing_factor', domains:['roads','transport','infrastructure'], keywords:['junction','crossing','cycle','footpath','speed','lighting','traffic signal','pedestrian'], requiredEvidence:['junctions','speed limits','crossings','lighting/cycle/footpath data'], missingIfAbsent:'Road-design asset evidence is incomplete.', description:'Layout and infrastructure affect how people move through a road environment.' },
+    { id:'nearby-vulnerable-assets', label:'Nearby schools, hospitals and public places', relationship:'exposure_context', domains:['education','health','public-services'], keywords:['school','hospital','clinic','library','public facility','child','elderly'], requiredEvidence:['asset locations','distance to road','opening hours/population served'], missingIfAbsent:'Vulnerable asset locations are not fully joined.', description:'Nearby vulnerable users change the interpretation of road context.' }
+  ]},
+  { id:'public-service-access', label:'Public service access', examples:['What services are missing here?','Which areas have poor access to hospitals, schools or transport?'], factors:[
+    { id:'service-locations', label:'Service and facility locations', relationship:'access_context', domains:['health','education','public-services','local-government'], keywords:['hospital','clinic','school','library','garda','fire','facility','service'], requiredEvidence:['facility locations','service type','operating status'], missingIfAbsent:'Service directories are incomplete or stale.', description:'Access starts with reliable location and service data.' },
+    { id:'transport-connectivity', label:'Transport connectivity', relationship:'access_context', domains:['transport','roads'], keywords:['bus','rail','gtfs','route','stop','journey','timetable','transport'], requiredEvidence:['stops','routes','frequency','walk/drive travel time'], missingIfAbsent:'Transport frequency and travel-time evidence is incomplete.', description:'Public transport determines whether services are practically reachable.' },
+    { id:'population-need', label:'Population need and demographics', relationship:'demand_context', domains:['demographics','housing','economy'], keywords:['population','census','age','disability','household','deprivation','income'], requiredEvidence:['population by area','age/need indicators','time period'], missingIfAbsent:'Demographic need data is missing at the right geography.', description:'Service access must be compared with who lives nearby and what they need.' }
+  ]},
+  { id:'planning-development-context', label:'Planning and development context', examples:['What changed around this neighbourhood?','What public evidence relates to this planning decision?'], factors:[
+    { id:'zoning-land-use', label:'Zoning and land-use policy', relationship:'policy_context', domains:['planning','housing','environment'], keywords:['planning','zoning','development plan','land use','myplan'], requiredEvidence:['zoning layer','development plan','valid date'], missingIfAbsent:'Zoning and plan layers are incomplete.', description:'Planning policy defines what development is permitted or encouraged.' },
+    { id:'nearby-environmental-constraints', label:'Nearby environmental constraints', relationship:'constraint_context', domains:['environment','energy','planning'], keywords:['protected','habitat','flood','water','biodiversity','noise','air'], requiredEvidence:['constraint layers','distance/overlap','licence/scale notes'], missingIfAbsent:'Environmental constraint layers are not fully connected.', description:'Environmental overlaps can shape planning interpretation.' },
+    { id:'infrastructure-capacity', label:'Infrastructure capacity and public assets', relationship:'capacity_context', domains:['infrastructure','transport','public-services'], keywords:['water','wastewater','road','traffic','school','health','broadband','energy'], requiredEvidence:['capacity indicators','assets','service catchments'], missingIfAbsent:'Capacity datasets are partial or absent.', description:'Development pressure should be read against infrastructure and service capacity.' }
+  ]}
+];
+function datasetText(d: Dataset): string { return `${d.id} ${d.title} ${d.publisher} ${d.domains.join(' ')} ${d.formats.join(' ')} ${d.description} ${d.resources.map(r=>`${r.name} ${r.description ?? ''} ${r.format}`).join(' ')}`.toLowerCase(); }
+function evidenceForFactor(f: BrainFactor): BrainEvidenceDataset[] {
+  return datasets.map(d => {
+    const text = datasetText(d); const reasons: string[] = []; let score = 0;
+    const domainHits = d.domains.filter(x => f.domains.includes(x));
+    if (domainHits.length) { score += domainHits.length * 8; reasons.push(`domain match: ${domainHits.join(', ')}`); }
+    const keywordHits = f.keywords.filter(k => text.includes(k.toLowerCase())).slice(0,8);
+    if (keywordHits.length) { score += keywordHits.length * 4; reasons.push(`keyword match: ${keywordHits.join(', ')}`); }
+    if (hasGeospatialResource(d)) { score += 3; reasons.push('geospatial join candidate'); }
+    if (hasTemporalSignal(d)) { score += 2; reasons.push('temporal context signal'); }
+    if (d.quality?.hasMachineReadableResource) { score += 1; reasons.push('machine-readable resource'); }
+    const caveats = [...d.provenanceNotes.slice(0,2)];
+    if (!hasGeospatialResource(d)) caveats.push('No precise geometry detected yet; spatial relationship needs adapter validation.');
+    if (!hasTemporalSignal(d)) caveats.push('No strong temporal signal detected from catalogue metadata.');
+    const evidenceStrength = score >= 18 ? 'strong' : score >= 10 ? 'medium' : 'weak';
+    return { datasetId:d.id, title:d.title, publisher:d.publisher, domains:d.domains, formats:d.formats, sourceUrl:d.sourceUrl, license:d.license, score, evidenceStrength, reasons, caveats } satisfies BrainEvidenceDataset;
+  }).filter(e => e.score >= 8).sort((a,b) => b.score - a.score || a.title.localeCompare(b.title)).slice(0,12);
+}
+function buildBrainIndex() {
+  const issues: BrainIssueCard[] = brainIssues.map(issue => {
+    const factors = issue.factors.map(f => {
+      const evidenceDatasets = evidenceForFactor(f);
+      const strongestEvidence: BrainFactorCard['strongestEvidence'] = evidenceDatasets[0]?.evidenceStrength ?? 'missing';
+      return { ...f, evidenceDatasets, evidenceCount:evidenceDatasets.length, strongestEvidence, missing:evidenceDatasets.length === 0 };
+    });
+    return { id:issue.id, label:issue.label, examples:issue.examples, factors, missingEvidence:factors.filter(f=>f.missing).map(f=>f.missingIfAbsent), relationshipTypes:[...new Set(factors.map(f=>f.relationship))], agentPrompt:`Use this as an evidence graph for ${issue.label}. Return candidate factors, supporting datasets, confidence/missingness, and avoid causal/legal/safety conclusions unless externally validated.` };
+  });
+  const factorEdges = issues.flatMap(issue => issue.factors.flatMap(f => f.evidenceDatasets.map(e => ({
+    id:`brain:${issue.id}:${f.id}:${slug(e.datasetId)}`, issueId:issue.id, factorId:f.id, datasetId:e.datasetId, predicate:f.relationship, confidence:e.evidenceStrength === 'strong' ? 'derived-high' : e.evidenceStrength === 'medium' ? 'derived-medium' : 'derived-low', reasons:e.reasons, caveats:e.caveats
+  }))));
+  const questionIndex = issues.flatMap(issue => issue.examples.map(q => ({ question:q, issueId:issue.id, text:`${q} ${issue.label} ${issue.factors.map(f=>`${f.label} ${f.keywords.join(' ')}`).join(' ')}`.toLowerCase() })));
+  return { generatedAt:now, version:now.slice(0,10), purpose:'Domain-agnostic public-context brain: connects questions to candidate real-world factors, supporting public datasets, confidence and missing evidence. It retrieves evidence; it does not issue official conclusions.', architecture:{ rawStorage:'R2/S3 snapshots and GeoParquet releases', batchProcessing:['DuckDB','GeoPandas','Shapely','Rasterio/GDAL','WhiteboxTools','NetworkX/OSMnx','H3'], serving:['Cloudflare Pages','Cloudflare Worker MCP/API'], graphCore:['entity resolution','spatial joins','temporal joins','evidence weighting','provenance','missingness tracking'] }, issueCount:issues.length, factorCount:issues.reduce((n,i)=>n+i.factors.length,0), evidenceEdgeCount:factorEdges.length, issues, factorEdges, questionIndex, learningLoop:['ingest new public datasets and snapshots','resolve entities to canonical places/assets/events/agencies','infer candidate spatial/temporal/factor relationships','score evidence and record caveats/missingness','expire or supersede stale edges as source data changes','expose updated graph through MCP/API for AI agents'] };
+}
+const brainIndex = buildBrainIndex();
 const out=resolve('dist/public-data'); mkdirSync(out,{recursive:true});
 const web=resolve('../apps/web/public/data'); mkdirSync(web,{recursive:true});
 const files: Record<string, unknown> = {
@@ -155,11 +221,12 @@ const files: Record<string, unknown> = {
   'graph-index.json':graphIndex,
   'layer-manifest.json':layerManifest,
   'publishers.json':publisherIndex,
-  'manifest.json':{version:bundle.version,generatedAt:bundle.generatedAt,files:['context-bundle.json','dataset-catalog.json','source-records.json','coverage-report.json','search-index.json','entities.json','relationships.json','observations.json','graph-index.json','layer-manifest.json','publishers.json'], discoveredFromDataGovIe:discovered.length, datasetCount:datasets.length, publisherCount:publishers.length, entityCount:entities.length, relationshipCount:relationships.length, layerCount:layerManifest.layers.length}
+  'brain-index.json':brainIndex,
+  'manifest.json':{version:bundle.version,generatedAt:bundle.generatedAt,files:['context-bundle.json','dataset-catalog.json','source-records.json','coverage-report.json','search-index.json','entities.json','relationships.json','observations.json','graph-index.json','layer-manifest.json','publishers.json','brain-index.json'], discoveredFromDataGovIe:discovered.length, datasetCount:datasets.length, publisherCount:publishers.length, entityCount:entities.length, relationshipCount:relationships.length, layerCount:layerManifest.layers.length, brainIssueCount:brainIndex.issueCount, brainFactorCount:brainIndex.factorCount, brainEvidenceEdgeCount:brainIndex.evidenceEdgeCount}
 };
 for (const [name, data] of Object.entries(files)) {
   const json=JSON.stringify(data);
   writeFileSync(resolve(out,name),json);
-  if (['manifest.json','coverage-report.json','graph-index.json','layer-manifest.json','publishers.json','search-index.json'].includes(name)) writeFileSync(resolve(web,name),json);
+  if (['manifest.json','coverage-report.json','graph-index.json','layer-manifest.json','publishers.json','search-index.json','brain-index.json'].includes(name)) writeFileSync(resolve(web,name),json);
 }
 console.log(`Generated ${datasets.length} catalogue datasets, ${publishers.length} publishers, ${entities.length} entities, ${relationships.length} relationships`);
