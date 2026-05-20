@@ -19,6 +19,10 @@ describe('worker', () => {
     expect(names).toContain('find_related_datasets');
     expect(names).toContain('get_real_world_graph');
     expect(names).toContain('search_real_world_entities');
+    expect(names).toContain('get_derived_facts');
+    expect(names).toContain('get_forecast_readiness');
+    expect(names).toContain('get_source_registry');
+    expect(names).toContain('get_agent_control_plane');
   });
 
   it('searches datasets through REST fallback', async () => {
@@ -58,5 +62,35 @@ describe('worker', () => {
     expect(json.graph.nodes.some((n:any) => n.type === 'asset' || n.type === 'condition' || n.type === 'event')).toBe(true);
     expect(json.graph.relationships.some((r:any) => ['located_in','describes','can_be_joined_spatially_with','supports_factor'].includes(r.predicate))).toBe(true);
     expect(json.claimBoundary).toContain('not an official conclusion');
+  });
+
+  it('serves source registry and agent control plane', async () => {
+    const registry = await app.request('/api/source-registry?limit=5', {}, {} as any);
+    expect(registry.status).toBe(200);
+    const registryJson:any = await registry.json();
+    expect(registryJson.sources.length).toBeGreaterThanOrEqual(0);
+    expect(registryJson.claimBoundary).toContain('Source registry');
+
+    const control = await app.request('/api/agent-control-plane', {}, {} as any);
+    expect(control.status).toBe(200);
+    const controlJson:any = await control.json();
+    expect(controlJson.controlPlane).toBeTruthy();
+    expect(controlJson.claimBoundary).toContain('Agentic loops');
+  });
+
+  it('serves derived facts and forecast readiness without unsupported accuracy claims', async () => {
+    const facts = await app.request('/api/derived-facts?limit=10', {}, {} as any);
+    expect(facts.status).toBe(200);
+    const factJson:any = await facts.json();
+    expect(factJson.facts.length).toBeGreaterThanOrEqual(10);
+    expect(factJson.facts[0].evidence.length).toBeGreaterThan(0);
+
+    const forecast = await app.request('/api/forecast-readiness?hazard=flooding', {}, {} as any);
+    expect(forecast.status).toBe(200);
+    const forecastJson:any = await forecast.json();
+    expect(forecastJson.forecastReadiness.requiredAccuracy).toBe(0.99);
+    expect(forecastJson.forecastReadiness.claimStatus).toBe('not-achieved');
+    expect(forecastJson.forecastReadiness.capabilities[0].current.accuracyClaimed).toBe(false);
+    expect(forecastJson.claimBoundary).toContain('No 99% forecast accuracy is claimed');
   });
 });

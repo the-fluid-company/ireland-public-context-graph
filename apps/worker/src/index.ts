@@ -7,6 +7,9 @@ type SearchRow = Pick<Dataset, 'id'|'title'|'publisher'|'domains'|'formats'|'sou
 type GraphIndex = { generatedAt:string; nodes:number; edges:number; entityTypes:Record<string,number>; relationshipTypes:Record<string,number>; domains:Record<string,number> };
 type BrainIndex = { generatedAt:string; purpose:string; issueCount:number; factorCount:number; evidenceEdgeCount:number; issues:any[]; factorEdges:any[]; questionIndex:any[]; learningLoop:string[]; architecture?:Record<string, unknown> };
 type RealWorldGraph = { generatedAt:string; version:string; purpose:string; nodes:any[]; relationships:any[]; counts:{ nodes:number; relationships:number; nodeTypes:Record<string,number>; relationshipTypes:Record<string,number> }; caveats:string[] };
+type DerivedFact = { id:string; title:string; finding:string; evidence:string[]; metric:Record<string, string | number | boolean>; caveat:string };
+type ForecastReadiness = { generatedAt:string; version:string; purpose:string; requiredAccuracy:number; claimStatus:string; capabilities:any[]; benchmarkGates:string[]; caveats:string[] };
+type SourceRegistryEntry = { id:string; name:string; url:string; owner:string; sourceType:string; domains:string[]; geography:string; accessMethod:string; license:string; updateFrequency:string; parserStatus:string; reliabilityScore:number; lastChecked:string; lastIngested:string | null; caveats:string[]; agentTasks:string[] };
 type RelatedDataset = Pick<Dataset, 'id'|'title'|'publisher'|'domains'|'formats'|'sourceUrl'|'license'|'description'|'quality'> & { score:number; reasons:string[] };
 
 const app = new Hono<{ Bindings: Env }>();
@@ -39,6 +42,28 @@ async function loadCoverage(env: Env): Promise<CoverageReport | undefined> { ret
 async function loadGraphIndex(env: Env): Promise<GraphIndex | undefined> { return loadJson(env, 'graph-index.json', undefined as GraphIndex | undefined); }
 async function loadLayerManifest(env: Env): Promise<LayerManifest | undefined> { return loadJson(env, 'layer-manifest.json', undefined as LayerManifest | undefined); }
 async function loadBrainIndex(env: Env): Promise<BrainIndex | undefined> { return loadJson(env, 'brain-index.json', undefined as BrainIndex | undefined); }
+function fallbackDerivedFacts(): DerivedFact[] {
+  return [
+    { id:'fact:fallback-catalog', title:'Seed graph connects public data domains', finding:'The fallback bundle connects national catalog, weather, flood, transport, roads, collisions, demographics and services metadata.', evidence:['seed-data'], metric:{ seedDatasetCount:seedBundle.datasets.length }, caveat:'Deploy generated derived-facts.json for full catalogue facts.' },
+    { id:'fact:fallback-flood', title:'Flood context needs rainfall, rivers and terrain', finding:'Flood questions require linked rainfall, hydrometric, terrain, land-cover and drainage evidence.', evidence:['seed-data'], metric:{ requiredSignals:5 }, caveat:'Fallback fact is a readiness statement, not a prediction.' },
+    { id:'fact:fallback-roads', title:'Road-condition context needs weather and road labels', finding:'Slippery-road forecasting needs surface weather joined to road network and incident or road-surface validation labels.', evidence:['seed-data'], metric:{ requiredSignals:3 }, caveat:'No 99% accuracy is claimed.' },
+    { id:'fact:fallback-harvest', title:'Harvest context is cross-domain', finding:'Bad-harvest forecasting needs growing-season weather, soil/land context and crop outcome labels.', evidence:['seed-data'], metric:{ requiredSignals:3 }, caveat:'Crop-yield labels are required for scoring.' },
+    { id:'fact:fallback-licence', title:'Licensing remains a graph property', finding:'Source licences and reuse caveats are carried with dataset metadata.', evidence:['seed-data'], metric:{ hasLicenceMetadata:true }, caveat:'Verify source-level terms before reuse.' },
+    { id:'fact:fallback-machine-readable', title:'Automation depends on machine-readable sources', finding:'The graph separates datasets, resources and formats so ingestion can prioritize machine-readable sources.', evidence:['seed-data'], metric:{ formatAware:true }, caveat:'Format metadata does not guarantee schema stability.' },
+    { id:'fact:fallback-geospatial', title:'Spatial joins need validated geometry', finding:'Geospatial candidate datasets are not treated as exact spatial joins until adapters validate geometry semantics.', evidence:['seed-data'], metric:{ geometryValidationRequired:true }, caveat:'Candidate status is not spatial proof.' },
+    { id:'fact:fallback-temporal', title:'Freshness needs temporal signals', finding:'Update cadence and retrieval timestamps are part of provenance for self-updating releases.', evidence:['seed-data'], metric:{ temporalMetadata:true }, caveat:'Event-time fields are adapter-dependent.' },
+    { id:'fact:fallback-services', title:'Service access needs transport and population context', finding:'Public service locations become more useful when linked to transport connectivity and demographics.', evidence:['seed-data'], metric:{ linkedDomains:3 }, caveat:'Access conclusions need travel-time adapters.' },
+    { id:'fact:fallback-claim-boundary', title:'The graph is context, not conclusions', finding:'The claim boundary prevents public metadata links from becoming unsupported legal, safety or causal findings.', evidence:['seed-data'], metric:{ claimBoundary:true }, caveat:'External validated models may add conclusions outside this layer.' }
+  ];
+}
+function fallbackForecastReadiness(): ForecastReadiness {
+  const capability = (hazard: string, label: string) => ({ id:`forecast:${hazard}`, hazard, label, status:'benchmark-required', target:{ threshold:0.99, metric:'holdout event accuracy', window:'hazard-specific' }, current:{ accuracyClaimed:false, validatedAccuracy:null, benchmarkStatus:'generated forecast-readiness.json artifact unavailable; fallback contract only' }, evidenceSignals:[], modelPlan:['load generated forecast-readiness.json','run source-specific adapters','publish temporal holdout benchmark'], blockers:['benchmark artifact unavailable'] });
+  return { generatedAt:seedBundle.generatedAt, version:'seed', purpose:'Fallback forecast readiness contract.', requiredAccuracy:0.99, claimStatus:'not-achieved', capabilities:[capability('flooding','Flooding forecast readiness'), capability('rainfall','Rainfall forecast readiness'), capability('bad-harvest','Bad-harvest forecast readiness'), capability('slippery-roads','Slippery-road forecast readiness')], benchmarkGates:['temporal holdout','validated labels','calibration report'], caveats:['Fallback readiness only. No 99% forecast accuracy is claimed.'] };
+}
+async function loadDerivedFacts(env: Env): Promise<DerivedFact[]> { return loadJson(env, 'derived-facts.json', fallbackDerivedFacts()); }
+async function loadForecastReadiness(env: Env): Promise<ForecastReadiness | undefined> { return loadJson(env, 'forecast-readiness.json', fallbackForecastReadiness()); }
+async function loadSourceRegistry(env: Env): Promise<SourceRegistryEntry[]> { return loadJson(env, 'source-registry.json', [] as SourceRegistryEntry[]); }
+async function loadAgentControlPlane(env: Env): Promise<Record<string, unknown>> { return loadJson(env, 'agent-control-plane.json', { generatedAt:seedBundle.generatedAt, purpose:'Fallback agent control plane unavailable until generated artifact is deployed.', agents:[], loop:[], selfHealing:[] } as Record<string, unknown>); }
 function fallbackRealWorldGraph(): RealWorldGraph {
   const nodes = [
     { id:'place:ireland', type:'place', label:'Ireland', description:'National coverage fallback place.', datasetIds:seedBundle.datasets.map(d=>d.id), domains:['transport','roads','public-services'] },
@@ -83,7 +108,11 @@ function tools() { return [
   { name:'get_missing_evidence', description:'Return missing evidence and caveats for a public-context question or issue.', inputSchema:{ type:'object', properties:{ question:{ type:'string' }, issue:{ type:'string' } } } },
   { name:'get_real_world_graph', description:'Return the real-world intelligence graph linking places, assets, conditions, events, agencies, issues, factors and supporting public datasets. Context only; no conclusions.', inputSchema:{ type:'object', properties:{ query:{ type:'string' }, type:{ type:'string' }, limit:{ type:'number' } } } },
   { name:'search_real_world_entities', description:'Search real-world graph nodes such as places, roads, schools, services, conditions, events, factors and agencies.', inputSchema:{ type:'object', properties:{ query:{ type:'string' }, type:{ type:'string' }, limit:{ type:'number' } }, required:['query'] } },
-  { name:'get_real_world_entity', description:'Get a real-world graph node and its direct relationships.', inputSchema:{ type:'object', properties:{ entity_id:{ type:'string' }, limit:{ type:'number' } }, required:['entity_id'] } }
+  { name:'get_real_world_entity', description:'Get a real-world graph node and its direct relationships.', inputSchema:{ type:'object', properties:{ entity_id:{ type:'string' }, limit:{ type:'number' } }, required:['entity_id'] } },
+  { name:'get_derived_facts', description:'Return interesting derived facts uncovered by linking Irish public datasets. Facts include evidence and caveats.', inputSchema:{ type:'object', properties:{ limit:{ type:'number' } } } },
+  { name:'get_forecast_readiness', description:'Return hazard forecast readiness, evidence signals, benchmark gates and current 99% accuracy claim status.', inputSchema:{ type:'object', properties:{ hazard:{ type:'string' } } } },
+  { name:'get_source_registry', description:'Return Ireland source registry entries with ownership, access method, parser status, reliability, caveats and agent tasks.', inputSchema:{ type:'object', properties:{ domain:{ type:'string' }, sourceType:{ type:'string' }, parserStatus:{ type:'string' }, limit:{ type:'number' } } } },
+  { name:'get_agent_control_plane', description:'Return the self-driven agent loop, roles and self-healing policy for the Irish Public Brain.', inputSchema:{ type:'object', properties:{} } }
 ]; }
 
 async function searchCatalog(args: any, env: Env) {
@@ -170,11 +199,37 @@ async function getRealWorldEntity(args: any, env: Env) {
   const ids = new Set([args?.entity_id, ...relationships.flatMap(r => [r.subject, r.object])]);
   return { entity:entity ? trimRealWorldNode(entity) : null, neighbors:graph.nodes.filter(n => ids.has(n.id) && n.id !== args?.entity_id).map(trimRealWorldNode), relationships, caveats:graph.caveats, disclaimers:claim() };
 }
+async function getDerivedFacts(args: any, env: Env) {
+  const facts = await loadDerivedFacts(env);
+  return { generatedAt:facts[0] ? undefined : null, count:facts.length, facts:facts.slice(0, pageLimit(args, 25, 100)), claimBoundary:'Derived facts are computed from public metadata and graph artifacts with caveats; they are not official conclusions.', disclaimers:claim() };
+}
+async function getForecastReadiness(args: any, env: Env) {
+  const readiness = await loadForecastReadiness(env);
+  if (!readiness) return { forecastReadiness:null, missing:['forecast-readiness.json artifact unavailable'], disclaimers:claim() };
+  const hazard = args?.hazard ? String(args.hazard) : '';
+  const capabilities = hazard ? readiness.capabilities.filter((c:any) => c.hazard === hazard || c.id === `forecast:${hazard}`) : readiness.capabilities;
+  return { forecastReadiness:{ ...readiness, capabilities }, claimBoundary:'No 99% forecast accuracy is claimed unless validatedAccuracy and benchmark gates prove it.', disclaimers:claim() };
+}
+async function getSourceRegistry(args: any, env: Env) {
+  const rows = await loadSourceRegistry(env);
+  const domain = args?.domain ? String(args.domain) : '';
+  const sourceType = args?.sourceType ? String(args.sourceType) : '';
+  const parserStatus = args?.parserStatus ? String(args.parserStatus) : '';
+  const filtered = rows.filter(r => (!domain || r.domains.includes(domain)) && (!sourceType || r.sourceType === sourceType) && (!parserStatus || r.parserStatus === parserStatus));
+  return { generatedAt:rows[0]?.lastChecked ?? null, count:filtered.length, sources:filtered.slice(0, pageLimit(args, 100, 500)), claimBoundary:'Source registry is a discovery and ingestion-control surface. Verify source terms before use.', disclaimers:claim() };
+}
+async function getAgentControlPlane(_args: any, env: Env) {
+  return { controlPlane:await loadAgentControlPlane(env), claimBoundary:'Agentic loops propose, test and publish evidence-backed artifacts only; no invented facts or official conclusions.', disclaimers:claim() };
+}
 
 async function callTool(name: string, args: any, env: Env) {
   if (name === 'get_real_world_graph') return realWorldGraph(args, env);
   if (name === 'search_real_world_entities') return searchRealWorldEntities(args, env);
   if (name === 'get_real_world_entity') return getRealWorldEntity(args, env);
+  if (name === 'get_derived_facts') return getDerivedFacts(args, env);
+  if (name === 'get_forecast_readiness') return getForecastReadiness(args, env);
+  if (name === 'get_source_registry') return getSourceRegistry(args, env);
+  if (name === 'get_agent_control_plane') return getAgentControlPlane(args, env);
   const b = await loadBundle(env);
   if (name === 'search_catalog' || name === 'list_datasets') return searchCatalog(args, env);
   if (name === 'get_dataset_metadata') { const datasets = await loadDatasets(env); const dataset = datasets.find(d => d.id === args.dataset_id) ?? null; return { dataset, sourceRecord:(await loadSources(env)).find(s => s.datasetId === args.dataset_id) ?? null, disclaimers:claim(b.disclaimers) }; }
@@ -197,6 +252,10 @@ async function callTool(name: string, args: any, env: Env) {
   if (name === 'get_real_world_graph') return realWorldGraph(args, env);
   if (name === 'search_real_world_entities') return searchRealWorldEntities(args, env);
   if (name === 'get_real_world_entity') return getRealWorldEntity(args, env);
+  if (name === 'get_derived_facts') return getDerivedFacts(args, env);
+  if (name === 'get_forecast_readiness') return getForecastReadiness(args, env);
+  if (name === 'get_source_registry') return getSourceRegistry(args, env);
+  if (name === 'get_agent_control_plane') return getAgentControlPlane(args, env);
   if (name === 'get_layer_manifest') {
     const loaded = await loadLayerManifest(env);
     const fallbackDomains = [...new Set(b.datasets.flatMap(d => d.domains))];
@@ -205,11 +264,11 @@ async function callTool(name: string, args: any, env: Env) {
   }
   if (name === 'find_related_datasets') return findRelatedDatasets(args, env);
   if (name === 'get_entity_neighborhood') { const limit = pageLimit(args, 200, 1000); const center = b.entities.find(e => e.id === args.entity_id) ?? null; const relationships = b.relationships.filter(r => (r.subject === args.entity_id || r.object === args.entity_id) && (!args.predicate || r.predicate === args.predicate)).slice(0, limit); const ids = new Set([args.entity_id, ...relationships.flatMap(r => [r.subject, r.object])]); return { center, entities:b.entities.filter(e => ids.has(e.id)), relationships, observations:b.observations.filter(o => ids.has(o.entityId)), disclaimers:claim(b.disclaimers) }; }
-  if (name === 'get_export_links') { const base = env.ARTIFACT_BASE_URL || 'https://ireland-public-context-graph-mcp.amreshtech.workers.dev/artifacts'; const files = ['context-bundle.json','dataset-catalog.json','source-records.json','coverage-report.json','search-index.json','entities.json','relationships.json','observations.json','graph-index.json','layer-manifest.json','publishers.json','brain-index.json','real-world-graph.json','real-world-graph-full.json','manifest.json']; return { links: files.map(f => ({ name:f, url:`${base}/${f}` })), disclaimers:claim(b.disclaimers) }; }
+  if (name === 'get_export_links') { const base = env.ARTIFACT_BASE_URL || 'https://ireland-public-context-graph-mcp.amreshtech.workers.dev/artifacts'; const files = ['context-bundle.json','dataset-catalog.json','source-records.json','coverage-report.json','search-index.json','entities.json','relationships.json','observations.json','graph-index.json','layer-manifest.json','publishers.json','brain-index.json','real-world-graph.json','real-world-graph-full.json','derived-facts.json','forecast-readiness.json','source-registry.json','agent-control-plane.json','manifest.json']; return { links: files.map(f => ({ name:f, url:`${base}/${f}` })), disclaimers:claim(b.disclaimers) }; }
   throw new Error(`Unknown tool: ${name}`);
 }
 
-app.get('/', c => c.json({ name:c.env.SERVICE_NAME ?? 'Ireland Public Context Graph', version:c.env.SERVICE_VERSION ?? '0.1.0', endpoints:['/health','/mcp','/api/search','/api/datasets/:id','/api/entities/:id','/api/context','/api/brain','/api/ask','/api/factors','/api/missing-evidence','/api/real-world-graph','/api/real-world-entities','/api/layers','/api/related/:dataset_id','/api/coverage','/api/exports'], claimBoundary:'data/context only; no conclusions' }));
+app.get('/', c => c.json({ name:c.env.SERVICE_NAME ?? 'Ireland Public Context Graph', version:c.env.SERVICE_VERSION ?? '0.1.0', endpoints:['/health','/mcp','/api/search','/api/datasets/:id','/api/entities/:id','/api/context','/api/brain','/api/ask','/api/factors','/api/missing-evidence','/api/real-world-graph','/api/real-world-entities','/api/derived-facts','/api/forecast-readiness','/api/source-registry','/api/agent-control-plane','/api/layers','/api/related/:dataset_id','/api/coverage','/api/exports'], claimBoundary:'data/context only; no conclusions' }));
 app.get('/health', c => c.json({ ok:true, service:c.env.SERVICE_NAME ?? 'Ireland Public Context Graph' }));
 app.get('/api/search', async c => c.json(await searchCatalog({ query:c.req.query('q'), domain:c.req.query('domain'), publisher:c.req.query('publisher'), format:c.req.query('format'), limit:c.req.query('limit') ?? 50, offset:c.req.query('offset') ?? 0 }, c.env)));
 app.get('/api/datasets', async c => c.json(await searchCatalog({ query:c.req.query('q'), domain:c.req.query('domain'), limit:c.req.query('limit') ?? 100, offset:c.req.query('offset') ?? 0 }, c.env)));
@@ -225,6 +284,10 @@ app.get('/api/missing-evidence', async c => c.json(await callTool('get_missing_e
 app.get('/api/real-world-graph', async c => c.json(await callTool('get_real_world_graph', { query:c.req.query('q'), type:c.req.query('type'), limit:c.req.query('limit') ?? 100 }, c.env)));
 app.get('/api/real-world-entities', async c => c.json(await callTool('search_real_world_entities', { query:c.req.query('q') ?? '', type:c.req.query('type'), limit:c.req.query('limit') ?? 100 }, c.env)));
 app.get('/api/real-world-entities/:id', async c => c.json(await callTool('get_real_world_entity', { entity_id:c.req.param('id'), limit:c.req.query('limit') ?? 100 }, c.env)));
+app.get('/api/derived-facts', async c => c.json(await callTool('get_derived_facts', { limit:c.req.query('limit') ?? 25 }, c.env)));
+app.get('/api/forecast-readiness', async c => c.json(await callTool('get_forecast_readiness', { hazard:c.req.query('hazard') }, c.env)));
+app.get('/api/source-registry', async c => c.json(await callTool('get_source_registry', { domain:c.req.query('domain'), sourceType:c.req.query('sourceType'), parserStatus:c.req.query('parserStatus'), limit:c.req.query('limit') ?? 100 }, c.env)));
+app.get('/api/agent-control-plane', async c => c.json(await callTool('get_agent_control_plane', {}, c.env)));
 app.get('/api/layers', async c => c.json(await callTool('get_layer_manifest', { domain:c.req.query('domain') }, c.env)));
 app.get('/api/related/:dataset_id', async c => c.json(await callTool('find_related_datasets', { dataset_id:c.req.param('dataset_id'), limit:c.req.query('limit') ?? 25 }, c.env)));
 app.get('/api/coverage', async c => c.json(await callTool('get_data_coverage', {}, c.env)));
