@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Hosted public-data context graph and MCP layer for Ireland.",
   "scripts": {
-    "build": "pnpm -r build",
+    "build": "pnpm --workspace-concurrency=1 -r build",
     "check": "pnpm -r check",
     "test": "pnpm -r test",
     "lint": "pnpm -r lint",

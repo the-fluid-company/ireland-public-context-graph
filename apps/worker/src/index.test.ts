@@ -22,6 +22,7 @@ describe('worker', () => {
     expect(names).toContain('get_derived_facts');
     expect(names).toContain('get_forecast_readiness');
     expect(names).toContain('get_source_registry');
+    expect(names).toContain('get_horizon_signals');
     expect(names).toContain('get_agent_control_plane');
   });
 
@@ -76,6 +77,15 @@ describe('worker', () => {
     const controlJson:any = await control.json();
     expect(controlJson.controlPlane).toBeTruthy();
     expect(controlJson.claimBoundary).toContain('Agentic loops');
+  });
+
+  it('serves current horizon signals as weak evidence', async () => {
+    const res = await app.request('/api/horizon-signals?limit=5', {}, {} as any);
+    expect(res.status).toBe(200);
+    const json:any = await res.json();
+    expect(Array.isArray(json.signals)).toBe(true);
+    expect(Array.isArray(json.sourceStatus)).toBe(true);
+    expect(json.claimBoundary).toContain('weak current-event metadata');
   });
 
   it('serves derived facts and forecast readiness without unsupported accuracy claims', async () => {

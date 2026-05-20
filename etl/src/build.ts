@@ -110,6 +110,55 @@ const sourceRegistry: SourceRegistryEntry[] = [
   { id:'source-registry:rte-news-rss', name:'RTÉ News public feeds', url:'https://www.rte.ie/news/', owner:'RTÉ', sourceType:'news', domains:['public-services','economy','environment','transport','health'], geography:'Ireland', accessMethod:'rss', license:'Copyright; metadata/excerpts only unless licensed', updateFrequency:'continuous', parserStatus:'monitor-only', reliabilityScore:0.76, lastChecked:now, lastIngested:null, caveats:['News is horizon signal, not authoritative structured data.'], agentTasks:['monitor headlines/URLs','extract entities and places','link articles as unverified horizon evidence'] },
   { id:'source-registry:irish-times-news', name:'The Irish Times public news surface', url:'https://www.irishtimes.com/', owner:'The Irish Times', sourceType:'news', domains:['public-services','economy','environment','housing','transport'], geography:'Ireland', accessMethod:'html', license:'Copyright; metadata/excerpts only unless licensed', updateFrequency:'continuous', parserStatus:'monitor-only', reliabilityScore:0.74, lastChecked:now, lastIngested:null, caveats:['Respect copyright/paywalls/robots; store metadata and links only unless licensed.'], agentTasks:['monitor public URLs/headlines','extract entities','cross-check against official data before answers'] }
 ];
+const HORIZON_FEEDS = [
+  { id:'source-registry:rte-news-rss', name:'RTÉ News Ireland feed', url:'https://www.rte.ie/feeds/rss/?index=/news/&limit=100', reliabilityScore:0.76, domains:['public-services','economy','environment','transport','health'] as DatasetDomain[] },
+  { id:'source-registry:rte-news-headlines', name:'RTÉ News headlines feed', url:'https://www.rte.ie/feeds/rss/?index=/news/ireland/&limit=100', reliabilityScore:0.74, domains:['public-services','economy','environment','transport','health'] as DatasetDomain[] },
+  { id:'source-registry:met-eireann-warnings', name:'Met Éireann warnings feed', url:'https://www.met.ie/warningsxml/rss.xml', reliabilityScore:0.9, domains:['weather','environment','roads','transport'] as DatasetDomain[] },
+  { id:'source-registry:irish-examiner-ireland', name:'Irish Examiner Ireland feed', url:'https://feeds.feedburner.com/ieireland', reliabilityScore:0.7, domains:['public-services','economy','environment','housing','transport','health'] as DatasetDomain[] },
+  { id:'source-registry:breakingnews-ie', name:'BreakingNews.ie top stories feed', url:'https://feeds.breakingnews.ie/bntopstories', reliabilityScore:0.68, domains:['public-services','economy','environment','transport','health'] as DatasetDomain[] },
+  { id:'source-registry:irish-times-rss', name:'The Irish Times public RSS surface', url:'https://www.irishtimes.com/arc/outboundfeeds/rss/?outputType=xml', reliabilityScore:0.72, domains:['public-services','economy','environment','housing','transport'] as DatasetDomain[] }
+];
+function decodeXml(value: string): string { return value.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\s+/g, ' ').trim(); }
+function tagValue(xml: string, tag: string): string { return decodeXml(xml.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'))?.[1] ?? ''); }
+function inferSignalDomains(text: string, fallback: DatasetDomain[]): DatasetDomain[] {
+  const hay = text.toLowerCase(); const hits = new Set<DatasetDomain>();
+  const add = (d: DatasetDomain, words: string[]) => { if (words.some(w => hay.includes(w))) hits.add(d); };
+  add('weather',['weather','rain','wind','storm','warning','flood','met eireann','snow','ice']);
+  add('environment',['climate','flood','water','pollution','biodiversity','waste','emission']);
+  add('transport',['transport','bus','train','rail','airport','traffic','route']);
+  add('roads',['road','roads','motorway','collision','crash','traffic','ice']);
+  add('housing',['housing','rent','home','homes','planning','development']);
+  add('health',['health','hospital','hse','doctor','patient','clinic']);
+  add('education',['school','schools','student','university','teacher']);
+  add('economy',['economy','jobs','business','tax','budget','inflation','market']);
+  add('public-services',['government','council','garda','court','public','minister','service']);
+  return hits.size ? [...hits] : fallback.slice(0,3);
+}
+const COUNTY_AND_PLACE_TERMS = ['Ireland','Dublin','Cork','Galway','Limerick','Waterford','Kerry','Mayo','Donegal','Clare','Meath','Kildare','Wicklow','Wexford','Sligo','Leitrim','Roscommon','Longford','Westmeath','Offaly','Laois','Carlow','Kilkenny','Tipperary','Louth','Monaghan','Cavan'];
+function extractPlaces(text: string): string[] { return COUNTY_AND_PLACE_TERMS.filter(p => new RegExp(`\\b${p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(text)).slice(0,8); }
+function extractEntities(text: string): string[] { return [...new Set(Array.from(text.matchAll(/\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,4})\b/g)).flatMap(m => m[1] ? [m[1]] : []).filter(v => !/^(The|This|Irish|Ireland|RTE|News)\b/.test(v)))].slice(0,12); }
+function matchIssues(text: string): string[] { const hay = text.toLowerCase(); return brainIssues.filter(issue => hay.includes(issue.label.toLowerCase().replace(' context','')) || issue.factors.some(f => f.keywords.some(k => hay.includes(k)))).map(i => i.id); }
+async function fetchHorizonSignals(): Promise<HorizonSignals> {
+  const sources: HorizonSignals['sources'] = []; const signals: HorizonSignal[] = [];
+  if (process.env.IPCG_OFFLINE === '1') return { generatedAt:now, purpose:'Current news/warning horizon signals for agentic monitoring. Offline build skipped live feeds.', count:0, sources:HORIZON_FEEDS.map(f => ({ id:f.id, name:f.name, url:f.url, status:'failed', fetched:0, error:'IPCG_OFFLINE=1' })), signals:[], caveats:['Horizon signals are news/warning metadata only, not authoritative structured facts.'] };
+  for (const feed of HORIZON_FEEDS) {
+    try {
+      const res = await fetch(feed.url, { signal: AbortSignal.timeout(12000), headers:{ 'user-agent':'IrelandPublicBrain/0.1 (+https://ireland-public-context-graph.pages.dev)' } });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const xml = await res.text();
+      const items = Array.from(xml.matchAll(/<item\b[\s\S]*?<\/item>/gi)).map(m => m[0]).slice(0,12);
+      sources.push({ id:feed.id, name:feed.name, url:feed.url, status:'ok', fetched:items.length });
+      for (const item of items) {
+        const title = tagValue(item, 'title'); const link = tagValue(item, 'link') || tagValue(item, 'guid'); const description = tagValue(item, 'description');
+        if (!title || !link) continue;
+        const text = `${title} ${description}`; const issueMatches = matchIssues(text);
+        signals.push({ id:`horizon:${slug(feed.id)}:${slug(title).slice(0,64)}`, sourceId:feed.id, sourceName:feed.name, sourceUrl:feed.url, title, url:link, publishedAt:tagValue(item, 'pubDate') || tagValue(item, 'dc:date') || null, retrievedAt:now, domains:inferSignalDomains(text, feed.domains), places:extractPlaces(text), entities:extractEntities(text), issueMatches, evidenceRole:'horizon-signal', reliabilityScore:feed.reliabilityScore, caveats:['News/warning horizon signal only; cross-check with official datasets before answering as fact.', 'Store headline/link metadata and avoid copying copyrighted article bodies.'] });
+      }
+    } catch (err) { sources.push({ id:feed.id, name:feed.name, url:feed.url, status:'failed', fetched:0, error:err instanceof Error ? err.message : String(err) }); }
+  }
+  const deduped = [...new Map(signals.map(s => [s.url || s.id, s])).values()].sort((a,b) => String(b.publishedAt ?? '').localeCompare(String(a.publishedAt ?? ''))).slice(0,60);
+  return { generatedAt:now, purpose:'Current Ireland horizon signals from public RSS/news/warning feeds. Agents use these to discover emerging entities/events, then verify against official data before promoting graph facts.', count:deduped.length, sources, signals:deduped, caveats:['Horizon signals are weak, time-sensitive evidence and not official conclusions.', 'Promotion into durable graph facts requires source corroboration, licence checks, and provenance.'] };
+}
 const coverage = buildCoverage(datasets, sourceRecords);
 const formatValues = [...new Set(datasets.flatMap(d => d.formats.map(f => cleanFormat(f))))].sort();
 const geographyValues = [...new Set(datasets.map(d => d.geography || 'Ireland'))].sort();
@@ -174,6 +223,8 @@ type DerivedFact = { id:string; title:string; finding:string; evidence:string[];
 type SourceRegistryEntry = { id:string; name:string; url:string; owner:string; sourceType:'official'|'semi-official'|'public-web'|'community'|'news'|'research'|'international'; domains:DatasetDomain[]; geography:string; accessMethod:'ckan'|'api'|'rss'|'arcgis'|'download'|'html'|'sparql'|'osm'|'manual-review'; license:string; updateFrequency:string; parserStatus:'implemented'|'planned'|'monitor-only'|'blocked'; reliabilityScore:number; lastChecked:string; lastIngested:string | null; caveats:string[]; agentTasks:string[] };
 type ForecastCapability = { id:string; hazard:'flooding'|'rainfall'|'bad-harvest'|'slippery-roads'; label:string; status:'evidence-ready'|'prototype-ready'|'benchmark-required'|'not-claimable'; target:{ threshold:number; metric:string; window:string }; current:{ accuracyClaimed:boolean; validatedAccuracy:number | null; benchmarkStatus:string }; evidenceSignals:{ id:string; label:string; datasetIds:string[]; strength:'strong'|'medium'|'weak'|'missing'; missing:boolean; caveats:string[] }[]; modelPlan:string[]; blockers:string[] };
 type ForecastReadiness = { generatedAt:string; version:string; purpose:string; requiredAccuracy:number; claimStatus:'not-achieved'|'partially-achieved'|'achieved'; capabilities:ForecastCapability[]; benchmarkGates:string[]; caveats:string[] };
+type HorizonSignal = { id:string; sourceId:string; sourceName:string; sourceUrl:string; title:string; url:string; publishedAt:string | null; retrievedAt:string; domains:DatasetDomain[]; places:string[]; entities:string[]; issueMatches:string[]; evidenceRole:'horizon-signal'; reliabilityScore:number; caveats:string[] };
+type HorizonSignals = { generatedAt:string; purpose:string; count:number; sources:{ id:string; name:string; url:string; status:'ok'|'failed'; fetched:number; error?:string }[]; signals:HorizonSignal[]; caveats:string[] };
 const brainIssues: BrainIssue[] = [
   { id:'flood-context', label:'Flood context', examples:['Why is flooding happening here?','What factors could contribute to flood risk around this place?'], factors:[
     { id:'rainfall-intensity', label:'Rainfall intensity and duration', relationship:'candidate_contributing_factor', domains:['weather','environment'], keywords:['rainfall','precipitation','rain','weather','storm','met eireann','forecast'], requiredEvidence:['current and recent rainfall','forecast rainfall','station or gridded weather coverage'], missingIfAbsent:'No rainfall/precipitation source is connected yet.', description:'Heavy or prolonged rainfall can increase runoff and river levels.' },
@@ -350,6 +401,7 @@ function buildForecastReadiness(): ForecastReadiness {
 }
 const derivedFacts = buildDerivedFacts();
 const forecastReadiness = buildForecastReadiness();
+const horizonSignals = await fetchHorizonSignals();
 const out=resolve('dist/public-data'); mkdirSync(out,{recursive:true});
 const web=resolve('../apps/web/public/data'); mkdirSync(web,{recursive:true});
 const files: Record<string, unknown> = {
@@ -368,14 +420,15 @@ const files: Record<string, unknown> = {
   'real-world-graph.json':realWorldIndex,
   'derived-facts.json':derivedFacts,
   'forecast-readiness.json':forecastReadiness,
+  'horizon-signals.json':horizonSignals,
   'source-registry.json':sourceRegistry,
   'agent-control-plane.json':{ generatedAt:now, purpose:'Agentic self-improving control plane for Ireland Public Brain.', agents:[{ id:'source-discovery-agent', role:'Find new Ireland-relevant sources and update source-registry candidates.' },{ id:'ingestion-agent', role:'Run parsers, validate records, and write release artifacts.' },{ id:'entity-resolution-agent', role:'Link places, agencies, assets, events and datasets with same_as/near/overlap candidates.' },{ id:'evidence-audit-agent', role:'Detect stale, contradictory, uncited or weak evidence.' },{ id:'insight-agent', role:'Generate reproducible cross-domain insight candidates with caveats.' }], loop:['discover sources','classify and score reliability','ingest or monitor','normalize schema','resolve entities','create candidate relationships','score evidence','run tests and no-uncited-claim gates','publish artifacts','flag stale/broken sources for repair'], selfHealing:['retry transient fetch failures','quarantine malformed records','downgrade stale sources','expire unsupported relationships','surface parser blockers in source registry'], claimBoundary:'Agents may propose evidence-backed candidate links only; they must not invent facts or issue official conclusions.' },
-  'manifest.json':{version:bundle.version,generatedAt:bundle.generatedAt,files:['context-bundle.json','dataset-catalog.json','source-records.json','coverage-report.json','search-index.json','entities.json','relationships.json','observations.json','graph-index.json','layer-manifest.json','publishers.json','brain-index.json','real-world-graph.json','derived-facts.json','forecast-readiness.json','source-registry.json','agent-control-plane.json','source-registry.json','agent-control-plane.json'], discoveredFromDataGovIe:discovered.length, datasetCount:datasets.length, publisherCount:publishers.length, entityCount:entities.length, relationshipCount:relationships.length, layerCount:layerManifest.layers.length, brainIssueCount:brainIndex.issueCount, brainFactorCount:brainIndex.factorCount, brainEvidenceEdgeCount:brainIndex.evidenceEdgeCount, realWorldNodeCount:realWorldIndex.counts.nodes, realWorldRelationshipCount:realWorldIndex.counts.relationships, derivedFactCount:derivedFacts.length, forecastCapabilityCount:forecastReadiness.capabilities.length, sourceRegistryCount:sourceRegistry.length, agentCount:5, forecastClaimStatus:forecastReadiness.claimStatus}
+  'manifest.json':{version:bundle.version,generatedAt:bundle.generatedAt,files:['context-bundle.json','dataset-catalog.json','source-records.json','coverage-report.json','search-index.json','entities.json','relationships.json','observations.json','graph-index.json','layer-manifest.json','publishers.json','brain-index.json','real-world-graph.json','derived-facts.json','forecast-readiness.json','horizon-signals.json','source-registry.json','agent-control-plane.json'], discoveredFromDataGovIe:discovered.length, datasetCount:datasets.length, publisherCount:publishers.length, entityCount:entities.length, relationshipCount:relationships.length, layerCount:layerManifest.layers.length, brainIssueCount:brainIndex.issueCount, brainFactorCount:brainIndex.factorCount, brainEvidenceEdgeCount:brainIndex.evidenceEdgeCount, realWorldNodeCount:realWorldIndex.counts.nodes, realWorldRelationshipCount:realWorldIndex.counts.relationships, derivedFactCount:derivedFacts.length, forecastCapabilityCount:forecastReadiness.capabilities.length, horizonSignalCount:horizonSignals.count, sourceRegistryCount:sourceRegistry.length, agentCount:5, forecastClaimStatus:forecastReadiness.claimStatus}
 };
 for (const [name, data] of Object.entries(files)) {
   const json=JSON.stringify(data);
   writeFileSync(resolve(out,name),json);
-  if (['manifest.json','coverage-report.json','graph-index.json','layer-manifest.json','publishers.json','search-index.json','brain-index.json','real-world-graph.json','derived-facts.json','forecast-readiness.json','source-registry.json','agent-control-plane.json','source-registry.json','agent-control-plane.json'].includes(name)) {
+  if (['manifest.json','coverage-report.json','graph-index.json','layer-manifest.json','publishers.json','search-index.json','brain-index.json','real-world-graph.json','derived-facts.json','forecast-readiness.json','horizon-signals.json','source-registry.json','agent-control-plane.json'].includes(name)) {
     if (name === 'real-world-graph.json') {
       const summary = { ...realWorldIndex, summaryOnly:true, nodes:realWorldIndex.nodes.filter(n => n.type !== 'dataset').slice(0,500), relationships:realWorldIndex.relationships.slice(0,5000) };
       writeFileSync(resolve(web,name), JSON.stringify(summary));
