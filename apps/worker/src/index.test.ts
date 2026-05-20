@@ -17,6 +17,8 @@ describe('worker', () => {
     expect(names).toContain('search_catalog');
     expect(names).toContain('get_layer_manifest');
     expect(names).toContain('find_related_datasets');
+    expect(names).toContain('get_real_world_graph');
+    expect(names).toContain('search_real_world_entities');
   });
 
   it('searches datasets through REST fallback', async () => {
@@ -46,5 +48,15 @@ describe('worker', () => {
     const relatedJson:any = await related.json();
     expect(relatedJson.related.length).toBeGreaterThan(0);
     expect(relatedJson.caveat).toContain('metadata-derived');
+  });
+
+  it('serves a real-world intelligence graph with place asset condition event relationships', async () => {
+    const res = await app.request('/api/real-world-graph?q=transport&limit=20', {}, {} as any);
+    expect(res.status).toBe(200);
+    const json:any = await res.json();
+    expect(json.graph.nodes.some((n:any) => n.type === 'place')).toBe(true);
+    expect(json.graph.nodes.some((n:any) => n.type === 'asset' || n.type === 'condition' || n.type === 'event')).toBe(true);
+    expect(json.graph.relationships.some((r:any) => ['located_in','describes','can_be_joined_spatially_with','supports_factor'].includes(r.predicate))).toBe(true);
+    expect(json.claimBoundary).toContain('not an official conclusion');
   });
 });

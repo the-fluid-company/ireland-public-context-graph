@@ -191,6 +191,74 @@ function evidenceForFactor(f: BrainFactor): BrainEvidenceDataset[] {
     return { datasetId:d.id, title:d.title, publisher:d.publisher, domains:d.domains, formats:d.formats, sourceUrl:d.sourceUrl, license:d.license, score, evidenceStrength, reasons, caveats } satisfies BrainEvidenceDataset;
   }).filter(e => e.score >= 8).sort((a,b) => b.score - a.score || a.title.localeCompare(b.title)).slice(0,12);
 }
+
+type RealWorldKind = 'place'|'asset'|'condition'|'event'|'factor'|'issue'|'agency'|'service'|'dataset';
+type RealWorldNode = { id:string; type:RealWorldKind; label:string; description:string; datasetIds:string[]; domains:DatasetDomain[]; evidenceStrength:'source'|'derived-high'|'derived-medium'|'derived-low'; properties:Record<string, unknown> };
+type RealWorldEdge = { id:string; subject:string; predicate:string; object:string; datasetIds:string[]; confidence:'source'|'derived-high'|'derived-medium'|'derived-low'; evidence:string; caveats:string[] };
+type RealWorldGraph = { generatedAt:string; version:string; purpose:string; nodes:RealWorldNode[]; relationships:RealWorldEdge[]; counts:{ nodes:number; relationships:number; nodeTypes:Record<string,number>; relationshipTypes:Record<string,number> }; caveats:string[] };
+const REAL_WORLD_PATTERNS: { id:string; type:Exclude<RealWorldKind,'place'|'factor'|'issue'|'agency'|'dataset'>; label:string; description:string; domains:DatasetDomain[]; keywords:string[]; relationshipToIssue?:string }[] = [
+  { id:'roads', type:'asset', label:'Roads and streets', description:'Road networks, road assets, junctions, crossings, lighting and traffic context.', domains:['roads','transport','infrastructure'], keywords:['road','roads','street','junction','traffic','crossing','speed','lighting','footpath','cycle'] },
+  { id:'public-transport', type:'asset', label:'Public transport stops and routes', description:'Stops, routes, timetables and connectivity that shape access to services.', domains:['transport'], keywords:['bus','rail','gtfs','stop','route','timetable','transport','journey'] },
+  { id:'schools', type:'asset', label:'Schools and education places', description:'Schools and education facilities that affect vulnerable-user and service-access context.', domains:['education','public-services'], keywords:['school','education','pupil','student','classroom'] },
+  { id:'health-services', type:'service', label:'Hospitals, clinics and health services', description:'Health facilities and service locations that affect access and vulnerability context.', domains:['health','public-services'], keywords:['hospital','health','clinic','gp','primary care','medical'] },
+  { id:'housing-development', type:'asset', label:'Housing and development sites', description:'Housing, development and planning records that can change local demand and surfaces.', domains:['housing','planning'], keywords:['housing','planning','development','zoning','land use','permission'] },
+  { id:'water-rivers-drainage', type:'asset', label:'Rivers, water bodies and drainage assets', description:'Rivers, catchments, drains, culverts and water infrastructure relevant to flood pathways.', domains:['environment','infrastructure','roads'], keywords:['river','water','catchment','drain','drainage','culvert','flood','stream','sewer'] },
+  { id:'rainfall-weather', type:'condition', label:'Rainfall and weather conditions', description:'Rainfall, forecasts and weather observations that can change flood and service conditions over time.', domains:['weather','environment'], keywords:['rain','rainfall','weather','precipitation','storm','met eireann'] },
+  { id:'terrain-ground', type:'condition', label:'Terrain, soil and ground conditions', description:'Elevation, slope, soil, geology and groundwater conditions that shape runoff or constraints.', domains:['environment','planning'], keywords:['lidar','elevation','slope','soil','geology','groundwater','terrain','dem'] },
+  { id:'collision-events', type:'event', label:'Road collisions and casualties', description:'Historic collision and casualty records used as context, not as fault or blackspot findings.', domains:['collisions','roads','transport'], keywords:['collision','casualty','accident','road safety','rsa'] },
+  { id:'population-need', type:'condition', label:'Population need and demographics', description:'Population, age, households, disability, deprivation and other need indicators.', domains:['demographics','economy','housing'], keywords:['population','census','age','household','deprivation','disability','income','commuting'] },
+  { id:'environmental-constraints', type:'condition', label:'Environmental constraints', description:'Protected areas, water quality, habitats, air, noise and environmental overlaps.', domains:['environment','planning','energy'], keywords:['protected','habitat','water quality','biodiversity','noise','air','constraint'] },
+  { id:'public-facilities', type:'service', label:'Public facilities and local services', description:'Libraries, Garda, fire, civic amenities and other local public-service places.', domains:['public-services','local-government','health','education'], keywords:['library','garda','fire','facility','amenity','service','civic'] }
+];
+function realWorldGraphFrom(datasets: Dataset[], brainIndex: ReturnType<typeof buildBrainIndex>): RealWorldGraph {
+  const nodes = new Map<string, RealWorldNode>();
+  const edges = new Map<string, RealWorldEdge>();
+  const addNode = (n: RealWorldNode) => {
+    const existing = nodes.get(n.id);
+    if (existing) {
+      for (const id of n.datasetIds) if (existing.datasetIds.length < 500 && !existing.datasetIds.includes(id)) existing.datasetIds.push(id);
+      for (const d of n.domains) if (!existing.domains.includes(d)) existing.domains.push(d);
+      return existing;
+    }
+    nodes.set(n.id, n); return n;
+  };
+  const addEdge = (e: RealWorldEdge) => { if (!edges.has(e.id)) edges.set(e.id, e); };
+  for (const ds of datasets) {
+    addNode({ id:`dataset:${ds.id}`, type:'dataset', label:ds.title, description:ds.description.slice(0,180), datasetIds:[ds.id], domains:ds.domains, evidenceStrength:'source', properties:{ publisher:ds.publisher, sourceUrl:ds.sourceUrl, formats:ds.formats.slice(0,8), license:ds.license, geospatialCandidate:hasGeospatialResource(ds), temporalSignal:hasTemporalSignal(ds) } });
+    const placeId = geographyId(ds.geography).replace(/^geography:/,'place:');
+    addNode({ id:placeId, type:'place', label:ds.geography || 'Ireland', description:'Geographic coverage declared or inferred from source metadata.', datasetIds:[ds.id], domains:ds.domains, evidenceStrength:'derived-medium', properties:{ geography:ds.geography } });
+    const agencyId = `agency:${ds.publisherId || slug(ds.publisher)}`;
+    addNode({ id:agencyId, type:'agency', label:ds.publisher, description:'Public body, agency, council or publisher connected to public records.', datasetIds:[ds.id], domains:ds.domains, evidenceStrength:'source', properties:{ publisherId:ds.publisherId } });
+    addEdge({ id:`rw:${slug(ds.id)}:published-by:${slug(agencyId)}`, subject:`dataset:${ds.id}`, predicate:'published_by', object:agencyId, datasetIds:[ds.id], confidence:'source', evidence:'source-publisher', caveats:[] });
+    addEdge({ id:`rw:${slug(ds.id)}:covers-place:${slug(placeId)}`, subject:`dataset:${ds.id}`, predicate:'covers_place', object:placeId, datasetIds:[ds.id], confidence:'derived-medium', evidence:'metadata-geography', caveats:['broad-geography'] });
+    const text = datasetText(ds);
+    for (const p of REAL_WORLD_PATTERNS) {
+      const domainHit = ds.domains.some(d => p.domains.includes(d));
+      const keywordHits = p.keywords.filter(k => text.includes(k.toLowerCase()));
+      if (keywordHits.length === 0) continue;
+      const id = `${p.type}:${p.id}`;
+      addNode({ id, type:p.type, label:p.label, description:p.description, datasetIds:[ds.id], domains:p.domains, evidenceStrength:keywordHits.length ? 'derived-high' : 'derived-medium', properties:{ keywordsMatched:keywordHits.slice(0,8) } });
+      addEdge({ id:`rw:${slug(ds.id)}:describes:${p.id}`, subject:`dataset:${ds.id}`, predicate:'describes', object:id, datasetIds:[ds.id], confidence:keywordHits.length ? 'derived-high' : 'derived-medium', evidence:keywordHits.length ? `metadata-keywords:${keywordHits.slice(0,3).join(',')}` : `metadata-domains:${ds.domains.filter(d=>p.domains.includes(d)).slice(0,3).join(',')}`, caveats:['adapter-required'] });
+      addEdge({ id:`rw:${p.id}:located-in:${slug(placeId)}`, subject:id, predicate:p.type === 'condition' || p.type === 'event' ? 'observed_in' : 'located_in', object:placeId, datasetIds:[ds.id], confidence:'derived-medium', evidence:'dataset-geography', caveats:['coverage-not-exact-location'] });
+      if (hasGeospatialResource(ds)) addEdge({ id:`rw:${p.id}:spatial-join:${slug(placeId)}`, subject:id, predicate:'can_be_joined_spatially_with', object:placeId, datasetIds:[ds.id], confidence:'derived-medium', evidence:'geospatial-candidate', caveats:['adapter-required'] });
+      if (hasTemporalSignal(ds)) addEdge({ id:`rw:${p.id}:temporal:${slug(ds.id)}`, subject:id, predicate:'has_time_context_from', object:`dataset:${ds.id}`, datasetIds:[ds.id], confidence:'derived-medium', evidence:'temporal-signal', caveats:['verify-temporal-coverage'] });
+    }
+  }
+  for (const issue of brainIndex.issues) {
+    const issueId = `issue:${issue.id}`;
+    addNode({ id:issueId, type:'issue', label:issue.label, description:(issue.examples ?? []).join(' · '), datasetIds:[], domains:[...new Set(issue.factors.flatMap(f=>f.domains))] as DatasetDomain[], evidenceStrength:'derived-high', properties:{ examples:issue.examples } });
+    for (const f of issue.factors) {
+      const factorId = `factor:${f.id}`;
+      addNode({ id:factorId, type:'factor', label:f.label, description:f.description, datasetIds:f.evidenceDatasets.map(e=>e.datasetId), domains:f.domains, evidenceStrength:f.strongestEvidence === 'strong' ? 'derived-high' : f.strongestEvidence === 'medium' ? 'derived-medium' : 'derived-low', properties:{ requiredEvidence:f.requiredEvidence, missingIfAbsent:f.missingIfAbsent } });
+      addEdge({ id:`rw:${issue.id}:has-factor:${f.id}`, subject:issueId, predicate:'has_possible_factor', object:factorId, datasetIds:f.evidenceDatasets.map(e=>e.datasetId), confidence:'derived-high', evidence:'curated-factor-taxonomy', caveats:['possible-factor-only'] });
+      for (const e of f.evidenceDatasets) addEdge({ id:`rw:${slug(e.datasetId)}:supports-factor:${f.id}`, subject:`dataset:${e.datasetId}`, predicate:'supports_factor', object:factorId, datasetIds:[e.datasetId], confidence:e.evidenceStrength === 'strong' ? 'derived-high' : e.evidenceStrength === 'medium' ? 'derived-medium' : 'derived-low', evidence:`score:${e.score}`, caveats:e.caveats.slice(0,2) });
+    }
+  }
+  const nodeList = [...nodes.values()].sort((a,b)=>a.type.localeCompare(b.type)||a.label.localeCompare(b.label));
+  const edgeList = [...edges.values()].sort((a,b)=>a.predicate.localeCompare(b.predicate)||a.subject.localeCompare(b.subject));
+  return { generatedAt:now, version:now.slice(0,10), purpose:'Real-world intelligence graph connecting places, assets, conditions, events, agencies, issues, factors and supporting public datasets. It is evidence/context only, not an official conclusion engine.', nodes:nodeList, relationships:edgeList, counts:{ nodes:nodeList.length, relationships:edgeList.length, nodeTypes:count(nodeList.map(n=>n.type)), relationshipTypes:count(edgeList.map(e=>e.predicate)) }, caveats:['Many relationships are metadata-derived until source-specific geospatial and temporal adapters validate exact geometry, time periods and semantics.','The graph represents candidate context and evidence links only; it must not be read as causation, legal fault, safety determination or policy recommendation.'] };
+}
+
 function buildBrainIndex() {
   const issues: BrainIssueCard[] = brainIssues.map(issue => {
     const factors = issue.factors.map(f => {
@@ -207,6 +275,7 @@ function buildBrainIndex() {
   return { generatedAt:now, version:now.slice(0,10), purpose:'Domain-agnostic public-context brain: connects questions to candidate real-world factors, supporting public datasets, confidence and missing evidence. It retrieves evidence; it does not issue official conclusions.', architecture:{ rawStorage:'R2/S3 snapshots and GeoParquet releases', batchProcessing:['DuckDB','GeoPandas','Shapely','Rasterio/GDAL','WhiteboxTools','NetworkX/OSMnx','H3'], serving:['Cloudflare Pages','Cloudflare Worker MCP/API'], graphCore:['entity resolution','spatial joins','temporal joins','evidence weighting','provenance','missingness tracking'] }, issueCount:issues.length, factorCount:issues.reduce((n,i)=>n+i.factors.length,0), evidenceEdgeCount:factorEdges.length, issues, factorEdges, questionIndex, learningLoop:['ingest new public datasets and snapshots','resolve entities to canonical places/assets/events/agencies','infer candidate spatial/temporal/factor relationships','score evidence and record caveats/missingness','expire or supersede stale edges as source data changes','expose updated graph through MCP/API for AI agents'] };
 }
 const brainIndex = buildBrainIndex();
+const realWorldIndex = realWorldGraphFrom(datasets, brainIndex);
 const out=resolve('dist/public-data'); mkdirSync(out,{recursive:true});
 const web=resolve('../apps/web/public/data'); mkdirSync(web,{recursive:true});
 const files: Record<string, unknown> = {
@@ -222,11 +291,17 @@ const files: Record<string, unknown> = {
   'layer-manifest.json':layerManifest,
   'publishers.json':publisherIndex,
   'brain-index.json':brainIndex,
-  'manifest.json':{version:bundle.version,generatedAt:bundle.generatedAt,files:['context-bundle.json','dataset-catalog.json','source-records.json','coverage-report.json','search-index.json','entities.json','relationships.json','observations.json','graph-index.json','layer-manifest.json','publishers.json','brain-index.json'], discoveredFromDataGovIe:discovered.length, datasetCount:datasets.length, publisherCount:publishers.length, entityCount:entities.length, relationshipCount:relationships.length, layerCount:layerManifest.layers.length, brainIssueCount:brainIndex.issueCount, brainFactorCount:brainIndex.factorCount, brainEvidenceEdgeCount:brainIndex.evidenceEdgeCount}
+  'real-world-graph.json':realWorldIndex,
+  'manifest.json':{version:bundle.version,generatedAt:bundle.generatedAt,files:['context-bundle.json','dataset-catalog.json','source-records.json','coverage-report.json','search-index.json','entities.json','relationships.json','observations.json','graph-index.json','layer-manifest.json','publishers.json','brain-index.json','real-world-graph.json'], discoveredFromDataGovIe:discovered.length, datasetCount:datasets.length, publisherCount:publishers.length, entityCount:entities.length, relationshipCount:relationships.length, layerCount:layerManifest.layers.length, brainIssueCount:brainIndex.issueCount, brainFactorCount:brainIndex.factorCount, brainEvidenceEdgeCount:brainIndex.evidenceEdgeCount, realWorldNodeCount:realWorldIndex.counts.nodes, realWorldRelationshipCount:realWorldIndex.counts.relationships}
 };
 for (const [name, data] of Object.entries(files)) {
   const json=JSON.stringify(data);
   writeFileSync(resolve(out,name),json);
-  if (['manifest.json','coverage-report.json','graph-index.json','layer-manifest.json','publishers.json','search-index.json','brain-index.json'].includes(name)) writeFileSync(resolve(web,name),json);
+  if (['manifest.json','coverage-report.json','graph-index.json','layer-manifest.json','publishers.json','search-index.json','brain-index.json','real-world-graph.json'].includes(name)) {
+    if (name === 'real-world-graph.json') {
+      const summary = { ...realWorldIndex, summaryOnly:true, nodes:realWorldIndex.nodes.filter(n => n.type !== 'dataset').slice(0,500), relationships:realWorldIndex.relationships.slice(0,5000) };
+      writeFileSync(resolve(web,name), JSON.stringify(summary));
+    } else writeFileSync(resolve(web,name),json);
+  }
 }
 console.log(`Generated ${datasets.length} catalogue datasets, ${publishers.length} publishers, ${entities.length} entities, ${relationships.length} relationships`);

@@ -6,6 +6,7 @@ type Env = { DATA_BASE_URL?: string; ARTIFACT_BASE_URL?: string; SERVICE_NAME?: 
 type SearchRow = Pick<Dataset, 'id'|'title'|'publisher'|'domains'|'formats'|'sourceUrl'|'license'|'description'|'quality'> & { resourceCount:number; text:string };
 type GraphIndex = { generatedAt:string; nodes:number; edges:number; entityTypes:Record<string,number>; relationshipTypes:Record<string,number>; domains:Record<string,number> };
 type BrainIndex = { generatedAt:string; purpose:string; issueCount:number; factorCount:number; evidenceEdgeCount:number; issues:any[]; factorEdges:any[]; questionIndex:any[]; learningLoop:string[]; architecture?:Record<string, unknown> };
+type RealWorldGraph = { generatedAt:string; version:string; purpose:string; nodes:any[]; relationships:any[]; counts:{ nodes:number; relationships:number; nodeTypes:Record<string,number>; relationshipTypes:Record<string,number> }; caveats:string[] };
 type RelatedDataset = Pick<Dataset, 'id'|'title'|'publisher'|'domains'|'formats'|'sourceUrl'|'license'|'description'|'quality'> & { score:number; reasons:string[] };
 
 const app = new Hono<{ Bindings: Env }>();
@@ -38,6 +39,23 @@ async function loadCoverage(env: Env): Promise<CoverageReport | undefined> { ret
 async function loadGraphIndex(env: Env): Promise<GraphIndex | undefined> { return loadJson(env, 'graph-index.json', undefined as GraphIndex | undefined); }
 async function loadLayerManifest(env: Env): Promise<LayerManifest | undefined> { return loadJson(env, 'layer-manifest.json', undefined as LayerManifest | undefined); }
 async function loadBrainIndex(env: Env): Promise<BrainIndex | undefined> { return loadJson(env, 'brain-index.json', undefined as BrainIndex | undefined); }
+function fallbackRealWorldGraph(): RealWorldGraph {
+  const nodes = [
+    { id:'place:ireland', type:'place', label:'Ireland', description:'National coverage fallback place.', datasetIds:seedBundle.datasets.map(d=>d.id), domains:['transport','roads','public-services'] },
+    { id:'asset:public-transport', type:'asset', label:'Public transport stops and routes', description:'Stops, routes and timetables.', datasetIds:['nta-gtfs'], domains:['transport'] },
+    { id:'event:collision-events', type:'event', label:'Road collisions and casualties', description:'Historic collision and casualty context.', datasetIds:['rsa-collisions'], domains:['collisions','roads','transport'] },
+    { id:'condition:population-need', type:'condition', label:'Population need and demographics', description:'Population and service need context.', datasetIds:['cso-statbank'], domains:['demographics','housing'] },
+    { id:'agency:national-transport-authority', type:'agency', label:'National Transport Authority', description:'Public data publisher.', datasetIds:['nta-gtfs'], domains:['transport'] }
+  ];
+  const relationships = [
+    { id:'rw:fallback:transport-place', subject:'asset:public-transport', predicate:'located_in', object:'place:ireland', datasetIds:['nta-gtfs'], confidence:'derived-medium', evidence:'Seed dataset geography.', caveats:['Fallback graph only.'] },
+    { id:'rw:fallback:collisions-place', subject:'event:collision-events', predicate:'observed_in', object:'place:ireland', datasetIds:['rsa-collisions'], confidence:'derived-medium', evidence:'Seed dataset geography.', caveats:['Fallback graph only.'] },
+    { id:'rw:fallback:population-spatial', subject:'condition:population-need', predicate:'can_be_joined_spatially_with', object:'place:ireland', datasetIds:['cso-statbank'], confidence:'derived-low', evidence:'Statistical geography can support joins after adapters.', caveats:['Fallback graph only.'] },
+    { id:'rw:fallback:nta-describes', subject:'dataset:nta-gtfs', predicate:'describes', object:'asset:public-transport', datasetIds:['nta-gtfs'], confidence:'source', evidence:'Seed dataset description.', caveats:[] }
+  ];
+  return { generatedAt:seedBundle.generatedAt, version:'seed', purpose:'Fallback real-world graph connecting places, assets, conditions, events, agencies and datasets.', nodes, relationships, counts:{ nodes:nodes.length, relationships:relationships.length, nodeTypes:{ place:1, asset:1, event:1, condition:1, agency:1 }, relationshipTypes:{ located_in:1, observed_in:1, can_be_joined_spatially_with:1, describes:1 } }, caveats:['Fallback graph is small; deploy real-world-graph.json for full generated relationships.'] };
+}
+async function loadRealWorldGraph(env: Env): Promise<RealWorldGraph> { return loadJson(env, 'real-world-graph.json', fallbackRealWorldGraph()); }
 function jsonRpc(id: unknown, result: unknown) { return { jsonrpc: '2.0', id, result }; }
 function jsonRpcError(id: unknown, code: number, message: string) { return { jsonrpc: '2.0', id, error: { code, message } }; }
 function claim(disclaimers?: string[]) { return disclaimers ?? seedBundle.disclaimers; }
@@ -62,7 +80,10 @@ function tools() { return [
   { name:'get_brain_index', description:'Return the public-context brain issue/factor index, learning loop and evidence-edge counts.', inputSchema:{ type:'object', properties:{} } },
   { name:'ask_public_context', description:'Match a plain-English civic question to issue factors, supporting datasets, evidence strength and missing evidence. Returns context only; no causal/legal/safety conclusions.', inputSchema:{ type:'object', properties:{ question:{ type:'string' }, place:{ type:'string' }, limit:{ type:'number' } }, required:['question'] } },
   { name:'find_contributing_factors', description:'Return candidate contributing/context factors for an issue such as flood, road safety, planning, public services, transport or health access.', inputSchema:{ type:'object', properties:{ issue:{ type:'string' }, place:{ type:'string' }, limit:{ type:'number' } }, required:['issue'] } },
-  { name:'get_missing_evidence', description:'Return missing evidence and caveats for a public-context question or issue.', inputSchema:{ type:'object', properties:{ question:{ type:'string' }, issue:{ type:'string' } } } }
+  { name:'get_missing_evidence', description:'Return missing evidence and caveats for a public-context question or issue.', inputSchema:{ type:'object', properties:{ question:{ type:'string' }, issue:{ type:'string' } } } },
+  { name:'get_real_world_graph', description:'Return the real-world intelligence graph linking places, assets, conditions, events, agencies, issues, factors and supporting public datasets. Context only; no conclusions.', inputSchema:{ type:'object', properties:{ query:{ type:'string' }, type:{ type:'string' }, limit:{ type:'number' } } } },
+  { name:'search_real_world_entities', description:'Search real-world graph nodes such as places, roads, schools, services, conditions, events, factors and agencies.', inputSchema:{ type:'object', properties:{ query:{ type:'string' }, type:{ type:'string' }, limit:{ type:'number' } }, required:['query'] } },
+  { name:'get_real_world_entity', description:'Get a real-world graph node and its direct relationships.', inputSchema:{ type:'object', properties:{ entity_id:{ type:'string' }, limit:{ type:'number' } }, required:['entity_id'] } }
 ]; }
 
 async function searchCatalog(args: any, env: Env) {
@@ -121,8 +142,39 @@ async function missingEvidence(args: any, env: Env) {
   const answer = await askPublicContext({ question:args?.question ?? args?.issue ?? '', limit:20 }, env);
   return { issue:answer.matchedIssue, missingEvidence:answer.missingEvidence, factorCaveats:(answer.factors ?? []).map((f:any) => ({ factorId:f.id, label:f.label, strongestEvidence:f.strongestEvidence, missing:f.missing, requiredEvidence:f.requiredEvidence, missingIfAbsent:f.missingIfAbsent, caveats:[...(f.evidenceDatasets ?? []).flatMap((e:any)=>e.caveats ?? [])].slice(0,5) })), disclaimers:claim() };
 }
+function realWorldText(n: any) { return normalizeSearch(`${n.id} ${n.type} ${n.label ?? n.name ?? ''} ${n.description ?? ''} ${(n.domains ?? []).join(' ')}`); }
+function trimRealWorldNode(n: any) { return { ...n, matchedDatasetCount:(n.datasetIds ?? []).length, datasetIds:(n.datasetIds ?? []).slice(0,20) }; }
+async function realWorldGraph(args: any, env: Env) {
+  const graph = await loadRealWorldGraph(env);
+  const q = args?.query ? normalizeSearch(String(args.query)) : '';
+  const type = args?.type ? String(args.type) : '';
+  const limit = pageLimit(args, 100, 1000);
+  const matched = graph.nodes.filter(n => (!q || realWorldText(n).includes(q)) && (!type || n.type === type)).slice(0, limit);
+  const ids = new Set(matched.map(n => n.id));
+  const relationships = graph.relationships.filter(r => ids.has(r.subject) || ids.has(r.object)).slice(0, Math.min(limit * 10, 5000));
+  for (const r of relationships) { ids.add(r.subject); ids.add(r.object); }
+  return { graph:{ ...graph, nodes:graph.nodes.filter(n => ids.has(n.id)).slice(0, limit * 2).map(trimRealWorldNode), relationships }, claimBoundary:'Real-world relationships are candidate public-context links, not an official conclusion, causation finding, safety determination or recommendation.', disclaimers:claim() };
+}
+async function searchRealWorldEntities(args: any, env: Env) {
+  const graph = await loadRealWorldGraph(env);
+  const q = normalizeSearch(String(args?.query ?? ''));
+  const type = args?.type ? String(args.type) : '';
+  const limit = pageLimit(args, 50, 500);
+  return { entities:graph.nodes.filter(n => (!q || realWorldText(n).includes(q)) && (!type || n.type === type)).slice(0, limit).map(trimRealWorldNode), counts:graph.counts, caveats:graph.caveats, disclaimers:claim() };
+}
+async function getRealWorldEntity(args: any, env: Env) {
+  const graph = await loadRealWorldGraph(env);
+  const limit = pageLimit(args, 100, 1000);
+  const entity = graph.nodes.find(n => n.id === args?.entity_id) ?? null;
+  const relationships = graph.relationships.filter(r => r.subject === args?.entity_id || r.object === args?.entity_id).slice(0, limit);
+  const ids = new Set([args?.entity_id, ...relationships.flatMap(r => [r.subject, r.object])]);
+  return { entity:entity ? trimRealWorldNode(entity) : null, neighbors:graph.nodes.filter(n => ids.has(n.id) && n.id !== args?.entity_id).map(trimRealWorldNode), relationships, caveats:graph.caveats, disclaimers:claim() };
+}
 
 async function callTool(name: string, args: any, env: Env) {
+  if (name === 'get_real_world_graph') return realWorldGraph(args, env);
+  if (name === 'search_real_world_entities') return searchRealWorldEntities(args, env);
+  if (name === 'get_real_world_entity') return getRealWorldEntity(args, env);
   const b = await loadBundle(env);
   if (name === 'search_catalog' || name === 'list_datasets') return searchCatalog(args, env);
   if (name === 'get_dataset_metadata') { const datasets = await loadDatasets(env); const dataset = datasets.find(d => d.id === args.dataset_id) ?? null; return { dataset, sourceRecord:(await loadSources(env)).find(s => s.datasetId === args.dataset_id) ?? null, disclaimers:claim(b.disclaimers) }; }
@@ -142,6 +194,9 @@ async function callTool(name: string, args: any, env: Env) {
   if (name === 'ask_public_context') return askPublicContext(args, env);
   if (name === 'find_contributing_factors') return askPublicContext({ question:args?.issue, place:args?.place, limit:args?.limit }, env);
   if (name === 'get_missing_evidence') return missingEvidence(args, env);
+  if (name === 'get_real_world_graph') return realWorldGraph(args, env);
+  if (name === 'search_real_world_entities') return searchRealWorldEntities(args, env);
+  if (name === 'get_real_world_entity') return getRealWorldEntity(args, env);
   if (name === 'get_layer_manifest') {
     const loaded = await loadLayerManifest(env);
     const fallbackDomains = [...new Set(b.datasets.flatMap(d => d.domains))];
@@ -150,11 +205,11 @@ async function callTool(name: string, args: any, env: Env) {
   }
   if (name === 'find_related_datasets') return findRelatedDatasets(args, env);
   if (name === 'get_entity_neighborhood') { const limit = pageLimit(args, 200, 1000); const center = b.entities.find(e => e.id === args.entity_id) ?? null; const relationships = b.relationships.filter(r => (r.subject === args.entity_id || r.object === args.entity_id) && (!args.predicate || r.predicate === args.predicate)).slice(0, limit); const ids = new Set([args.entity_id, ...relationships.flatMap(r => [r.subject, r.object])]); return { center, entities:b.entities.filter(e => ids.has(e.id)), relationships, observations:b.observations.filter(o => ids.has(o.entityId)), disclaimers:claim(b.disclaimers) }; }
-  if (name === 'get_export_links') { const base = env.ARTIFACT_BASE_URL || 'https://ireland-public-context-graph-mcp.amreshtech.workers.dev/artifacts'; const files = ['context-bundle.json','dataset-catalog.json','source-records.json','coverage-report.json','search-index.json','entities.json','relationships.json','observations.json','graph-index.json','layer-manifest.json','publishers.json','brain-index.json','manifest.json']; return { links: files.map(f => ({ name:f, url:`${base}/${f}` })), disclaimers:claim(b.disclaimers) }; }
+  if (name === 'get_export_links') { const base = env.ARTIFACT_BASE_URL || 'https://ireland-public-context-graph-mcp.amreshtech.workers.dev/artifacts'; const files = ['context-bundle.json','dataset-catalog.json','source-records.json','coverage-report.json','search-index.json','entities.json','relationships.json','observations.json','graph-index.json','layer-manifest.json','publishers.json','brain-index.json','real-world-graph.json','real-world-graph-full.json','manifest.json']; return { links: files.map(f => ({ name:f, url:`${base}/${f}` })), disclaimers:claim(b.disclaimers) }; }
   throw new Error(`Unknown tool: ${name}`);
 }
 
-app.get('/', c => c.json({ name:c.env.SERVICE_NAME ?? 'Ireland Public Context Graph', version:c.env.SERVICE_VERSION ?? '0.1.0', endpoints:['/health','/mcp','/api/search','/api/datasets/:id','/api/entities/:id','/api/context','/api/brain','/api/ask','/api/factors','/api/missing-evidence','/api/layers','/api/related/:dataset_id','/api/coverage','/api/exports'], claimBoundary:'data/context only; no conclusions' }));
+app.get('/', c => c.json({ name:c.env.SERVICE_NAME ?? 'Ireland Public Context Graph', version:c.env.SERVICE_VERSION ?? '0.1.0', endpoints:['/health','/mcp','/api/search','/api/datasets/:id','/api/entities/:id','/api/context','/api/brain','/api/ask','/api/factors','/api/missing-evidence','/api/real-world-graph','/api/real-world-entities','/api/layers','/api/related/:dataset_id','/api/coverage','/api/exports'], claimBoundary:'data/context only; no conclusions' }));
 app.get('/health', c => c.json({ ok:true, service:c.env.SERVICE_NAME ?? 'Ireland Public Context Graph' }));
 app.get('/api/search', async c => c.json(await searchCatalog({ query:c.req.query('q'), domain:c.req.query('domain'), publisher:c.req.query('publisher'), format:c.req.query('format'), limit:c.req.query('limit') ?? 50, offset:c.req.query('offset') ?? 0 }, c.env)));
 app.get('/api/datasets', async c => c.json(await searchCatalog({ query:c.req.query('q'), domain:c.req.query('domain'), limit:c.req.query('limit') ?? 100, offset:c.req.query('offset') ?? 0 }, c.env)));
@@ -167,6 +222,9 @@ app.get('/api/brain', async c => c.json(await callTool('get_brain_index', {}, c.
 app.get('/api/ask', async c => c.json(await callTool('ask_public_context', { question:c.req.query('q') ?? 'What public context is connected?', place:c.req.query('place'), limit:c.req.query('limit') ?? 6 }, c.env)));
 app.get('/api/factors', async c => c.json(await callTool('find_contributing_factors', { issue:c.req.query('issue') ?? c.req.query('q') ?? 'flood', place:c.req.query('place'), limit:c.req.query('limit') ?? 8 }, c.env)));
 app.get('/api/missing-evidence', async c => c.json(await callTool('get_missing_evidence', { question:c.req.query('q'), issue:c.req.query('issue') }, c.env)));
+app.get('/api/real-world-graph', async c => c.json(await callTool('get_real_world_graph', { query:c.req.query('q'), type:c.req.query('type'), limit:c.req.query('limit') ?? 100 }, c.env)));
+app.get('/api/real-world-entities', async c => c.json(await callTool('search_real_world_entities', { query:c.req.query('q') ?? '', type:c.req.query('type'), limit:c.req.query('limit') ?? 100 }, c.env)));
+app.get('/api/real-world-entities/:id', async c => c.json(await callTool('get_real_world_entity', { entity_id:c.req.param('id'), limit:c.req.query('limit') ?? 100 }, c.env)));
 app.get('/api/layers', async c => c.json(await callTool('get_layer_manifest', { domain:c.req.query('domain') }, c.env)));
 app.get('/api/related/:dataset_id', async c => c.json(await callTool('find_related_datasets', { dataset_id:c.req.param('dataset_id'), limit:c.req.query('limit') ?? 25 }, c.env)));
 app.get('/api/coverage', async c => c.json(await callTool('get_data_coverage', {}, c.env)));
