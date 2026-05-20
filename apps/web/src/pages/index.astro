@@ -1,105 +1,99 @@
 ---
-const manifest = await import('../../public/data/manifest.json').then(m => m.default).catch(() => ({ generatedAt:'pending', datasetCount:0, entityCount:0, relationshipCount:0, brainIssueCount:0, brainFactorCount:0, brainEvidenceEdgeCount:0 }));
+const manifest = await import('../../public/data/manifest.json').then(m => m.default).catch(() => ({ generatedAt:'pending', datasetCount:0, publisherCount:0, realWorldNodeCount:0, realWorldRelationshipCount:0, brainIssueCount:0, brainFactorCount:0, brainEvidenceEdgeCount:0 }));
 const brain = await import('../../public/data/brain-index.json').then(m => m.default).catch(() => ({ issues:[], issueCount:0, factorCount:0, evidenceEdgeCount:0 }));
-const examples = [
-  'Why is flooding happening in Tallaght?',
-  'Is this road dangerous near a school?',
-  'What services are missing in my area?',
-  'What changed around this neighbourhood?'
-];
 const updatedLabel = (() => {
   const d = new Date(manifest.generatedAt);
   if (Number.isNaN(d.getTime())) return 'update pending';
-  return new Intl.DateTimeFormat('en-IE', { day:'numeric', month:'long', year:'numeric', hour:'2-digit', minute:'2-digit', timeZone:'UTC', timeZoneName:'short' }).format(d);
+  return new Intl.DateTimeFormat('en-IE', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit', timeZone:'UTC', timeZoneName:'short' }).format(d);
 })();
+const layers = [
+  { group:'Weather & water', items:['Rainfall','Rivers / streams','Ground already soaked','Flood zones'], active:3, total:4 },
+  { group:'Roads & safety', items:['Roads','School zones','Collisions','Crossings'], active:2, total:4 },
+  { group:'Places & services', items:['Schools','Health services','Public facilities','Population'], active:3, total:4 },
+  { group:'Planning context', items:['Planning applications','Housing','Land use','Transport access'], active:2, total:4 }
+];
+const examples = ['Why is flooding happening in Tallaght?','Is this road dangerous near a school?','What services are missing nearby?','What changed in this area?'];
 ---
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Ask Ireland's Public Data</title>
-  <meta name="description" content="Ask simple questions about places in Ireland and see public evidence, possible reasons and missing information in plain English." />
+  <title>Ireland Public Context Map</title>
+  <meta name="description" content="A map-first public data explorer for ordinary people to see how Irish places, public sources and possible reasons connect." />
   <style>
-    :root{
-      --ink:#132018;--muted:#607066;--paper:#fcfbf2;--card:#fffef8;--green:#123d2b;--soft:#e9f4db;--mint:#cfe8c0;--blue:#dceef8;--gold:#f4c96b;--red:#d87551;--line:#dfe6d7;--shadow:0 24px 80px rgba(20,50,32,.13);
-      font-family:ui-serif, Georgia, Cambria, "Times New Roman", serif;color:var(--ink);background:var(--paper);line-height:1.5;
-    }
-    *{box-sizing:border-box} body{margin:0;background:radial-gradient(circle at 10% -10%,#dff1c7 0,transparent 34rem),radial-gradient(circle at 90% 0,#e2f3ff 0,transparent 34rem),var(--paper)}
-    button,input{font:inherit} a{color:var(--green)} .wrap{max-width:1180px;margin:auto;padding:22px 18px 46px}
-    .hero{display:grid;grid-template-columns:1.05fr .95fr;gap:26px;align-items:center;min-height:620px}.eyebrow{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);background:#fff;border-radius:999px;padding:8px 12px;font:800 12px/1.1 ui-sans-serif,system-ui,sans-serif;letter-spacing:.08em;text-transform:uppercase;color:#31523d}.hero h1{font-size:clamp(46px,7vw,92px);line-height:.91;letter-spacing:-.06em;margin:20px 0 16px}.lead{font-size:clamp(19px,2.1vw,26px);max-width:760px;color:#2c3f33}.plain-note{display:flex;gap:12px;align-items:flex-start;background:#fff8e7;border:1px solid #f1d99a;border-radius:22px;padding:15px 17px;max-width:760px;color:#463614}.plain-note b{white-space:nowrap}.ask-box{background:var(--card);border:1px solid var(--line);border-radius:30px;padding:18px;box-shadow:var(--shadow);margin-top:22px}.ask-row{display:flex;gap:10px}.ask-row input{width:100%;border:1px solid var(--line);border-radius:18px;background:white;padding:16px 17px;font-size:18px;outline:0}.ask-row input:focus{border-color:var(--green);box-shadow:0 0 0 4px #dcebd3}.btn{border:0;border-radius:18px;background:var(--green);color:white;padding:14px 20px;font:900 15px ui-sans-serif,system-ui,sans-serif;cursor:pointer}.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.chip{border:1px solid var(--line);background:#f8fbf1;border-radius:999px;padding:9px 12px;color:#314238;cursor:pointer}.chip:hover{background:var(--soft)}
-    .map-card{position:relative;min-height:500px;border-radius:38px;overflow:hidden;background:linear-gradient(145deg,#f7f2d9,#d8ecd1 45%,#cde7f5);border:1px solid rgba(35,65,45,.12);box-shadow:var(--shadow)}.map-card:before{content:"";position:absolute;inset:0;background-image:linear-gradient(rgba(20,60,40,.08) 1px,transparent 1px),linear-gradient(90deg,rgba(20,60,40,.08) 1px,transparent 1px);background-size:42px 42px}.ireland{position:absolute;right:30px;top:28px;width:270px;opacity:.95}.pin{position:absolute;left:48%;top:40%;width:18px;height:18px;background:var(--red);border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 0 0 8px rgba(216,117,81,.18)}.story{position:absolute;left:24px;right:24px;bottom:24px;background:rgba(255,255,248,.9);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.7);border-radius:28px;padding:20px}.story h2{font-size:30px;line-height:1;margin:0 0 10px}.mini-links{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:14px}.mini{background:white;border:1px solid var(--line);border-radius:18px;padding:12px;font:800 13px ui-sans-serif,system-ui,sans-serif}.mini span{display:block;font:500 12px ui-sans-serif,system-ui,sans-serif;color:var(--muted);margin-top:2px}
-    .section{margin-top:34px}.section-head{display:flex;justify-content:space-between;align-items:end;gap:18px;margin-bottom:14px}.section h2{font-size:clamp(32px,4vw,54px);line-height:.95;letter-spacing:-.04em;margin:0}.muted{color:var(--muted)}.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.card{background:var(--card);border:1px solid var(--line);border-radius:28px;padding:20px;box-shadow:0 10px 40px rgba(20,50,32,.06)}.card h3{margin:0 0 8px;font-size:24px}.card p{margin:0}.number{font:900 38px ui-sans-serif,system-ui,sans-serif;color:var(--green);letter-spacing:-.04em}.answer-grid{display:grid;grid-template-columns:.78fr 1.22fr;gap:16px}.tabs{display:grid;gap:9px}.tab{border:1px solid var(--line);background:white;border-radius:20px;padding:14px;text-align:left;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:12px}.tab.active{background:var(--green);color:white;border-color:var(--green)}.tab strong{display:block;font:900 16px ui-sans-serif,system-ui,sans-serif}.tab span{display:inline-flex;white-space:nowrap;border-radius:999px;background:#eef6e8;padding:6px 9px;font:800 12px ui-sans-serif,system-ui,sans-serif;color:#31523d}.tab.active span{background:rgba(255,255,255,.18);color:white}.answer{min-height:420px}.answer-title{font-size:38px;line-height:1;letter-spacing:-.035em;margin:0 0 10px}.simple-summary{background:var(--soft);border:1px solid #cfe2bf;border-radius:24px;padding:17px;margin:12px 0 18px;font-size:18px}.reason-list{display:grid;gap:12px}.reason{border:1px solid var(--line);background:#fff;border-radius:22px;padding:16px}.reason-head{display:flex;justify-content:space-between;gap:10px;align-items:center}.reason h4{margin:0;font-size:21px}.badge{font:900 12px ui-sans-serif,system-ui,sans-serif;border-radius:999px;padding:6px 9px;background:#edf6e8;color:#24513a}.badge.medium{background:#fff3d8;color:#6a4b05}.badge.weak{background:#f8e7dd;color:#7b321a}.why{margin:8px 0;color:#415147}.sources{margin-top:10px}.sources summary{cursor:pointer;font:900 13px ui-sans-serif,system-ui,sans-serif;color:var(--green)}.source-link{display:block;margin-top:8px;border-left:4px solid var(--mint);padding:8px 10px;background:#f9fbf3;text-decoration:none;border-radius:0 12px 12px 0}.small{font:500 13px ui-sans-serif,system-ui,sans-serif}.missing{margin-top:18px;padding:16px;border-radius:22px;background:#fff9e9;border:1px solid #ead79f}.relationship-map{margin:16px 0 18px;border:1px solid #d8e2cf;background:linear-gradient(135deg,#fffef8,#f3f8eb);border-radius:26px;padding:16px}.relationship-map h3{margin:0 0 4px;font-size:24px;letter-spacing:-.03em}.relationship-map .hint{font:700 12px ui-sans-serif,system-ui,sans-serif;text-transform:uppercase;letter-spacing:.08em;color:#54705d;margin:0 0 12px}.connection-list{display:grid;gap:10px;list-style:none;margin:12px 0 0;padding:0}.connection-list li{background:white;border:1px solid var(--line);border-radius:18px;padding:12px 14px;color:#2d4035}.connection-list b{font:900 14px ui-sans-serif,system-ui,sans-serif;color:#173f2c}.connection-list span{display:block;margin-top:4px;color:var(--muted);font-size:13px}.connector{justify-self:start;color:#375540;background:#edf6e8;border:1px solid #d4e5c7;border-radius:999px;padding:4px 10px;font:900 12px ui-sans-serif,system-ui,sans-serif;text-transform:uppercase;letter-spacing:.08em}.relationship-sentences{display:grid;gap:8px;margin-top:12px}.relationship-sentences p{margin:0;background:white;border:1px solid var(--line);border-radius:16px;padding:10px 12px;color:#33443a}.relationship-sentences b{color:#173f2c}.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.step{background:#173d2b;color:white;border-radius:24px;padding:18px;min-height:140px}.step b{display:block;font:900 42px/1 ui-sans-serif,system-ui,sans-serif;color:var(--gold);margin-bottom:14px}.dev{margin-top:30px;border-top:1px solid var(--line);padding-top:18px}.dev summary{cursor:pointer;font:900 14px ui-sans-serif,system-ui,sans-serif;color:#31523d}.dev-links{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}.dev-links a{background:white;border:1px solid var(--line);border-radius:999px;padding:9px 12px;text-decoration:none;font:800 13px ui-sans-serif,system-ui,sans-serif}footer{margin-top:34px;color:var(--muted);font:500 13px ui-sans-serif,system-ui,sans-serif}
-    @media(max-width:900px){.hero,.answer-grid{grid-template-columns:1fr}.hero{min-height:auto}.cards,.steps{grid-template-columns:1fr 1fr}.map-card{min-height:430px}.ask-row{flex-direction:column}.btn{width:100%}.connection-list{gap:10px}}
-    @media(max-width:560px){.wrap{padding:16px 12px 34px}.hero h1{font-size:47px}.cards,.steps,.mini-links{grid-template-columns:1fr}.section-head{display:block}.map-card{min-height:390px}.ireland{width:220px;right:12px}.story{left:14px;right:14px;bottom:14px}.answer-title{font-size:32px}}
+    :root{--bg:#07100f;--panel:rgba(8,22,22,.82);--panel2:rgba(10,29,30,.92);--line:rgba(130,229,211,.24);--line2:rgba(255,255,255,.1);--text:#edfdf8;--muted:#9ec3bb;--cyan:#34f6d1;--blue:#62b7ff;--amber:#ffd166;--green:#65e08a;--orange:#ff8a5b;--purple:#b895ff;--danger:#ff5f7b;--shadow:0 24px 90px rgba(0,0,0,.42);font-family:"Aptos","Segoe UI",system-ui,sans-serif;color:var(--text);background:var(--bg)}
+    *{box-sizing:border-box} body{margin:0;min-height:100vh;background:radial-gradient(circle at 48% 38%,rgba(48,246,209,.16),transparent 23rem),radial-gradient(circle at 74% 65%,rgba(98,183,255,.12),transparent 26rem),#060d0d;overflow-x:hidden} button,input{font:inherit} button{cursor:pointer} a{color:var(--cyan)}
+    .shell{min-height:100vh;display:grid;grid-template-rows:auto 1fr auto;position:relative;isolation:isolate}.map{position:fixed;inset:0;z-index:-2;background:linear-gradient(135deg,#07100f,#0b1519)}.map:before{content:"";position:absolute;inset:0;background-image:linear-gradient(rgba(91,246,213,.065) 1px,transparent 1px),linear-gradient(90deg,rgba(91,246,213,.055) 1px,transparent 1px);background-size:54px 54px;mask-image:radial-gradient(circle at center,#000 20%,transparent 82%)}.map:after{content:"";position:absolute;inset:0;background:radial-gradient(circle at 28% 42%,rgba(101,224,138,.34) 0 4px,transparent 5px),radial-gradient(circle at 42% 33%,rgba(255,209,102,.5) 0 5px,transparent 6px),radial-gradient(circle at 55% 57%,rgba(52,246,209,.55) 0 6px,transparent 7px),radial-gradient(circle at 63% 39%,rgba(255,138,91,.42) 0 5px,transparent 6px),radial-gradient(circle at 71% 61%,rgba(184,149,255,.45) 0 5px,transparent 6px),radial-gradient(circle at 38% 70%,rgba(98,183,255,.45) 0 5px,transparent 6px);filter:drop-shadow(0 0 10px rgba(52,246,209,.7))}.ireland-map{position:fixed;left:38%;top:16%;width:min(48vw,620px);height:auto;opacity:.62;z-index:-1;filter:drop-shadow(0 0 36px rgba(52,246,209,.18))}.route{stroke-dasharray:6 10;animation:dash 18s linear infinite}@keyframes dash{to{stroke-dashoffset:-220}}
+    .topbar{display:grid;grid-template-columns:280px 1fr minmax(440px,520px);gap:14px;align-items:center;padding:14px 16px 8px}.brand,.status,.search{border:1px solid var(--line);background:linear-gradient(180deg,rgba(14,36,37,.92),rgba(7,18,19,.78));box-shadow:var(--shadow);backdrop-filter:blur(14px);border-radius:18px}.brand{padding:14px 16px}.brand h1{margin:0;font-size:32px;letter-spacing:.04em;line-height:.85}.brand p{margin:7px 0 0;color:var(--muted);font:800 11px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.16em;text-transform:uppercase}.status{display:flex;justify-content:center;gap:18px;padding:12px 16px;font:800 12px ui-monospace,SFMono-Regular,Menlo,monospace;text-transform:uppercase;color:var(--muted)}.status b{color:var(--cyan)}.status .live{color:var(--green)}.search{padding:10px;display:flex;gap:8px}.search input{width:100%;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.07);color:var(--text);border-radius:13px;padding:12px 13px;outline:0}.search input:focus{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(52,246,209,.12)}.search button,.primary{border:0;background:var(--cyan);color:#05201b;border-radius:13px;padding:11px 14px;font:950 12px ui-monospace,SFMono-Regular,Menlo,monospace;text-transform:uppercase;white-space:nowrap}
+    .workspace{display:grid;grid-template-columns:330px 1fr 390px;gap:14px;padding:8px 16px 12px;min-height:calc(100vh - 142px)}.panel{border:1px solid var(--line);background:var(--panel);backdrop-filter:blur(16px);box-shadow:var(--shadow);border-radius:22px;overflow:hidden}.panel-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 15px;border-bottom:1px solid var(--line2);font:900 12px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.14em;text-transform:uppercase;color:#d8fff7}.count{color:var(--cyan)}.layer-body{padding:10px;display:grid;gap:10px}.layer-group{border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.035);border-radius:16px;overflow:hidden}.group-title{display:flex;justify-content:space-between;align-items:center;padding:11px 12px;color:#d8fff7;font-weight:850}.group-title span{font:800 11px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--amber)}.layer{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;border-top:1px solid rgba(255,255,255,.07);color:var(--muted);font-size:14px}.toggle{width:34px;height:18px;border-radius:999px;background:rgba(255,255,255,.12);position:relative}.toggle:after{content:"";position:absolute;top:3px;left:3px;width:12px;height:12px;border-radius:50%;background:#5b6c68}.layer.on{color:var(--text)}.layer.on .toggle{background:rgba(52,246,209,.24)}.layer.on .toggle:after{left:19px;background:var(--cyan);box-shadow:0 0 12px var(--cyan)}
+    .center{display:flex;align-items:end;justify-content:center;position:relative}.hero-card{width:min(620px,100%);margin-bottom:18px;border:1px solid var(--line);background:linear-gradient(180deg,rgba(8,22,22,.78),rgba(5,14,15,.88));backdrop-filter:blur(18px);border-radius:30px;box-shadow:var(--shadow);padding:20px}.hero-card .kicker{font:900 12px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--cyan);letter-spacing:.18em;text-transform:uppercase}.hero-card h2{font-size:clamp(34px,4.8vw,58px);line-height:.9;letter-spacing:-.06em;margin:12px 0 14px}.hero-card p{font-size:16px;color:#c8e6df;max-width:680px;margin:0}.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}.chip{border:1px solid rgba(52,246,209,.25);background:rgba(52,246,209,.09);color:#dcfff8;border-radius:999px;padding:9px 12px;font-size:13px}.map-label{position:absolute;border:1px solid var(--line);background:rgba(5,18,18,.72);backdrop-filter:blur(10px);border-radius:14px;padding:9px 11px;font:800 12px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--cyan);box-shadow:0 0 24px rgba(52,246,209,.14)}.label-a{left:10%;top:17%}.label-b{right:18%;top:35%;color:var(--amber)}.label-c{left:25%;bottom:32%;color:var(--green)}
+    .right{display:grid;grid-template-rows:auto 1fr;gap:14px}.tools{padding-bottom:12px}.tool-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;padding:12px}.tool{border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.045);border-radius:16px;padding:12px;color:var(--text);min-height:76px}.tool b{display:block;color:var(--cyan);font:900 11px ui-monospace,SFMono-Regular,Menlo,monospace;text-transform:uppercase;letter-spacing:.1em}.tool span{display:block;color:var(--muted);font-size:13px;margin-top:5px}.answer{padding:14px;overflow:auto}.answer-kicker{display:flex;justify-content:space-between;gap:10px;align-items:center;margin:-14px -14px 14px;padding:13px 14px;border-bottom:1px solid var(--line2);font:900 11px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.13em;text-transform:uppercase;color:#d8fff7}.answer-kicker b{color:var(--cyan);font:inherit}.answer-title{font-size:31px;line-height:1;margin:0 0 10px;letter-spacing:-.04em}.summary{border:1px solid rgba(52,246,209,.22);background:rgba(52,246,209,.08);border-radius:18px;padding:13px;color:#dffff8;margin:10px 0 12px}.trail{list-style:none;padding:0;margin:10px 0;display:grid;gap:8px}.trail li{border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.045);border-radius:15px;padding:11px;color:#d9f2ed}.trail b{color:var(--cyan)}.reason-list{display:grid;gap:9px;margin-top:12px}.reason{border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);border-radius:16px;padding:12px}.reason h4{margin:0;color:white;font-size:17px}.reason p{margin:6px 0 0;color:var(--muted);font-size:13px}.badge{float:right;border:1px solid rgba(101,224,138,.3);background:rgba(101,224,138,.1);color:#a4ffc0;border-radius:999px;padding:4px 7px;font:900 10px ui-monospace,SFMono-Regular,Menlo,monospace;text-transform:uppercase}.sources summary{margin-top:8px;color:var(--cyan);font:900 12px ui-monospace,SFMono-Regular,Menlo,monospace;cursor:pointer}.source-link{display:block;margin-top:7px;border-left:3px solid var(--cyan);padding:8px 9px;background:rgba(52,246,209,.05);border-radius:0 10px 10px 0;text-decoration:none;color:#eafffb}.source-link span{color:var(--muted);font-size:12px}.empty{color:var(--muted)}
+    .bottombar{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;padding:0 16px 14px}.metric{border:1px solid var(--line);background:rgba(7,18,19,.82);backdrop-filter:blur(12px);border-radius:16px;padding:10px 12px;text-decoration:none}.metric span{display:block;color:var(--muted);font:850 10px ui-monospace,SFMono-Regular,Menlo,monospace;text-transform:uppercase;letter-spacing:.13em}.metric b{display:block;color:var(--text);font-size:20px;margin-top:2px}.dev{display:none}.dev summary{list-style:none;border:1px solid var(--line);background:rgba(7,18,19,.86);border-radius:999px;padding:9px 12px;font:900 11px ui-monospace,SFMono-Regular,Menlo,monospace;text-transform:uppercase;color:var(--muted);cursor:pointer}.dev-links{margin-top:8px;background:var(--panel2);border:1px solid var(--line);border-radius:16px;padding:10px;display:grid;gap:8px}.dev-links a{font-size:13px;text-decoration:none}.mobile-note{display:none}
+    @media(max-width:1100px){body{overflow:auto}.topbar,.workspace{grid-template-columns:1fr}.workspace{min-height:auto}.left{order:2}.center{min-height:520px;order:1}.right{order:3}.bottombar{grid-template-columns:repeat(2,1fr)}.ireland-map{left:12%;top:18%;width:76vw}.status{justify-content:flex-start;overflow:auto}.dev{position:static;margin:0 16px 14px}.map-label{display:none}}
+    @media(max-width:620px){.topbar,.workspace{padding-left:10px;padding-right:10px}.brand h1{font-size:25px}.search{flex-direction:column}.hero-card{padding:20px}.hero-card h2{font-size:42px}.bottombar{grid-template-columns:1fr}.tool-grid{grid-template-columns:1fr}.mobile-note{display:block;color:var(--muted);font-size:13px;margin-top:10px}}
   </style>
 </head>
 <body>
-  <main class="wrap">
-    <section class="hero">
-      <div>
-        <span class="eyebrow">Public beta · Ireland</span>
-        <h1>Ask Ireland’s public data a question.</h1>
-        <p class="lead">Type a place or problem. See the possible reasons, the trusted public sources, and what information is still missing — in plain English.</p>
-        <div class="plain-note"><b>Not official advice.</b><span>This site helps people understand public evidence. It does not decide blame, legal responsibility, engineering safety, or policy.</span></div>
-        <div id="ask" class="ask-box">
-          <div class="ask-row">
-            <input id="q" value="Why is flooding happening in Tallaght?" placeholder="Example: Why is flooding happening in Tallaght?" aria-label="Ask a public data question" />
-            <button class="btn" id="askBtn">See context</button>
-          </div>
+  <main class="shell">
+    <div class="map" aria-hidden="true"></div>
+    <svg class="ireland-map" viewBox="0 0 520 620" aria-hidden="true">
+      <path d="M284 12c63 25 55 80 94 111 39 31 96 26 112 79 15 49-31 78-22 126 10 65 67 100 39 158-25 53-91 43-132 80-43 39-48 100-116 101-60 1-76-59-122-80-49-22-116 1-143-52-29-55 24-97 35-154 12-58-29-116 1-166 33-54 103-42 148-81 45-40 36-146 106-122Z" fill="rgba(24,48,45,.52)" stroke="rgba(52,246,209,.62)" stroke-width="3" />
+      <path class="route" d="M98 192c89 31 183 40 294 21M73 336c118-22 246-3 365 60M207 124c-20 119 31 240 133 369" fill="none" stroke="rgba(98,183,255,.36)" stroke-width="8" stroke-linecap="round" />
+      <circle cx="265" cy="292" r="9" fill="#34f6d1"><animate attributeName="r" values="7;15;7" dur="2.8s" repeatCount="indefinite" /></circle>
+    </svg>
+
+    <header class="topbar">
+      <section class="brand"><h1>IRELAND<br/>CONTEXT</h1><p>Public data situational map</p></section>
+      <section class="status"><span>SYS: <b class="live">LIVE</b></span><span>Sources: <b>{manifest.publisherCount}</b></span><span>Updated: <b>{updatedLabel}</b></span><span>Advisory: <b>Context only</b></span></section>
+      <section class="search"><input id="q" value="Why is flooding happening in Tallaght?" aria-label="Ask about a place or issue" /><button id="askBtn">Map context</button></section>
+    </header>
+
+    <section class="workspace">
+      <aside class="panel left">
+        <div class="panel-head"><span>Public data layers</span><span class="count">10 / 16</span></div>
+        <div class="layer-body">
+          {layers.map(group => <div class="layer-group"><div class="group-title">{group.group}<span>{group.active}/{group.total}</span></div>{group.items.map((item, i) => <div class:list={['layer', i < group.active && 'on']}><span>{item}</span><span class="toggle" aria-hidden="true"></span></div>)}</div>)}
+        </div>
+      </aside>
+
+      <section class="center">
+        <span class="map-label label-a">Schools + roads</span>
+        <span class="map-label label-b">Rain + rivers</span>
+        <span class="map-label label-c">Public services</span>
+        <div class="hero-card">
+          <div class="kicker">For ordinary people, not data engineers</div>
+          <h2>See what public data says about a place.</h2>
+          <p>Choose a question, turn public layers on and off, then inspect the evidence trail: what place you asked about, what possible reasons may matter, and which public records support the context.</p>
           <div class="chips">{examples.map(x => <button class="chip" data-question={x}>{x}</button>)}</div>
+          <p class="mobile-note">On desktop this behaves like an operations map. On mobile, panels stack into a simple evidence reader.</p>
         </div>
-      </div>
-      <div class="map-card" aria-label="Simple map style illustration of connected public information">
-        <svg class="ireland" viewBox="0 0 280 360" aria-hidden="true"><path d="M151 8c32 14 29 45 50 62 20 16 51 14 60 42 8 26-15 42-11 67 5 33 36 54 22 84-12 28-48 22-69 42-22 20-25 52-60 52-31 0-38-32-61-43-25-12-61 0-76-28-15-29 14-52 20-81 6-30-15-60 1-86 17-28 54-22 77-42 24-20 18-84 47-69Z" fill="#fefcf2" stroke="#123d2b" stroke-width="3"/><path d="M62 107c48 18 99 25 158 16M43 190c62-12 131-2 194 34M114 68c-8 62 16 126 70 196" fill="none" stroke="#90b583" stroke-width="7" opacity=".55"/><circle cx="143" cy="163" r="10" fill="#d87551"/></svg>
-        <span class="pin" aria-hidden="true"></span>
-        <div class="story">
-          <h2>From question to context</h2>
-          <p class="muted">This tool connects places, weather, roads, rivers, services, planning and other public records so ordinary people can see what may be related.</p>
-          <div class="mini-links"><div class="mini">Possible reasons<span>Plain English first</span></div><div class="mini">Map context<span>What's nearby</span></div><div class="mini">Trusted sources<span>Open public data</span></div><div class="mini">Missing info<span>What's still unknown</span></div></div>
-        </div>
-      </div>
+      </section>
+
+      <aside class="right">
+        <section class="panel tools">
+          <div class="panel-head"><span>Explorer tools</span><span class="count">plain English</span></div>
+          <div class="tool-grid">
+            <button class="tool"><b>Explain area</b><span>Summarise possible public context.</span></button>
+            <button class="tool"><b>Show evidence</b><span>Open source links and caveats.</span></button>
+            <button class="tool"><b>Find nearby</b><span>Schools, services, roads, rivers.</span></button>
+            <button class="tool"><b>What's missing</b><span>See weak or absent evidence.</span></button>
+          </div>
+        </section>
+        <section class="panel answer" id="answer"><p class="empty">Loading public context…</p></section>
+      </aside>
     </section>
 
-    <section class="section answer-grid">
-      <div class="card">
-        <h2 style="font-size:34px">Pick a question type</h2>
-        <p class="muted">We group your question into the closest topic.</p>
-        <div id="issues" class="tabs" style="margin-top:14px"></div>
-      </div>
-      <div id="answer" class="card answer"></div>
+    <section class="bottombar" aria-label="Public graph summary">
+      <div class="metric"><span>Datasets</span><b>{manifest.datasetCount?.toLocaleString?.() ?? manifest.datasetCount}</b></div>
+      <div class="metric"><span>Real-world nodes</span><b>{manifest.realWorldNodeCount?.toLocaleString?.() ?? manifest.realWorldNodeCount}</b></div>
+      <div class="metric"><span>Relationships</span><b>{manifest.realWorldRelationshipCount?.toLocaleString?.() ?? manifest.realWorldRelationshipCount}</b></div>
+      <div class="metric"><span>Question types</span><b>{manifest.brainIssueCount ?? brain.issueCount}</b></div>
+      <div class="metric"><span>Possible reasons</span><b>{manifest.brainFactorCount ?? brain.factorCount}</b></div>
+      <div class="metric"><span>Evidence links</span><b>{manifest.brainEvidenceEdgeCount ?? brain.evidenceEdgeCount}</b></div>
+      <a class="metric dev-metric" href="/mcp"><span>Developer</span><b>API / MCP</b></a>
     </section>
 
-    <section class="section">
-      <div class="section-head"><div><h2>How to read an answer</h2><p class="muted">Designed for normal people first. Technical detail stays underneath.</p></div></div>
-      <div class="steps">
-        <div class="step"><b>1</b>Ask a question about a place.</div>
-        <div class="step"><b>2</b>See possible reasons, not a forced conclusion.</div>
-        <div class="step"><b>3</b>Open the sources behind each reason.</div>
-        <div class="step"><b>4</b>Check what evidence is missing or weak.</div>
-      </div>
-    </section>
-
-    <section class="section">
-      <div class="section-head"><div><h2>What is inside today</h2><p class="muted">The public version hides jargon, but still checks open evidence behind the scenes.</p></div></div>
-      <div class="cards">
-        <div class="card"><div class="number">{manifest.datasetCount?.toLocaleString?.() ?? manifest.datasetCount}</div><h3>public datasets</h3><p class="muted">Sources from Irish public data catalogues and agencies.</p></div>
-        <div class="card"><div class="number">{manifest.brainFactorCount ?? brain.factorCount}</div><h3>topics covered</h3><p class="muted">Flooding, road safety, services and planning context to start.</p></div>
-        <div class="card"><div class="number">{manifest.brainEvidenceEdgeCount ?? brain.evidenceEdgeCount}</div><h3>total evidence links</h3><p class="muted">All evidence links across every question type in the public brain.</p></div>
-      </div>
-    </section>
-
-    <details class="dev">
-      <summary>Developer and agent access</summary>
-      <div class="dev-links">
-        <a href="https://ireland-public-context-graph-mcp.amreshtech.workers.dev/api/ask?q=Why%20is%20flooding%20happening%20in%20Tallaght">Ask API</a>
-        <a href="https://ireland-public-context-graph-mcp.amreshtech.workers.dev/api/brain">Brain API</a>
-        <a href="https://ireland-public-context-graph-mcp.amreshtech.workers.dev/artifacts/brain-index.json">Brain artifact</a>
-        <a href="/mcp">MCP instructions</a>
-        <a href="https://github.com/the-fluid-company/ireland-public-context-graph">GitHub</a>
-      </div>
-    </details>
-
-    <footer>Updated {updatedLabel}. Public evidence context only; no official conclusions.</footer>
+    <details class="dev"><summary>Developer access</summary><div class="dev-links"><a href="https://ireland-public-context-graph-mcp.amreshtech.workers.dev/api/ask?q=Why%20is%20flooding%20happening%20in%20Tallaght">Ask API</a><a href="https://ireland-public-context-graph-mcp.amreshtech.workers.dev/api/real-world-graph?q=school&limit=10">Graph API</a><a href="/mcp">MCP instructions</a><a href="https://github.com/the-fluid-company/ireland-public-context-graph">GitHub</a></div></details>
   </main>
 
   <script is:inline>
@@ -107,120 +101,52 @@ const updatedLabel = (() => {
     const state = { brain:null, selected:null };
     const q = document.getElementById('q');
     const answer = document.getElementById('answer');
-    const issuesEl = document.getElementById('issues');
-    const esc = s => String(s ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const norm = s => String(s ?? '').toLowerCase();
+    const esc = s => String(s ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    function simpleFactorLabel(label){
+      const map = {'Rainfall intensity and duration':'Heavy rain','River level and upstream/downstream cascade':'Rivers and streams rising','Soil saturation and infiltration capacity':'Ground already soaked','Elevation, slope and flow paths':'Low ground and slopes','Impervious surface and land cover':'Concrete, roads and hard surfaces','Drainage, culverts and road barriers':'Drains, culverts and road layout'};
+      return map[label] || label;
+    }
+    function strengthText(s){ return s === 'strong' ? 'strong evidence' : s === 'medium' ? 'some evidence' : s === 'weak' ? 'limited evidence' : 'evidence unclear'; }
     function scoreIssue(issue, query){
       const text = norm(`${issue.id} ${issue.label} ${(issue.examples||[]).join(' ')} ${(issue.factors||[]).map(f=>`${f.label} ${f.description} ${(f.keywords||[]).join(' ')}`).join(' ')}`);
       return norm(query).split(/[^a-z0-9-]+/).filter(Boolean).reduce((n,t)=>n+(text.includes(t)?(t.length>3?3:1):0), text.includes(norm(query))?10:0);
     }
-    function plainIssueLabel(label){
-      return String(label || '').replace(/ context$/i,'').replace('Public service access','Local services');
-    }
-    function simpleFactorLabel(label){
-      const map = {
-        'Rainfall intensity and duration':'Heavy rain',
-        'River level and upstream/downstream cascade':'Rivers and streams rising',
-        'Soil saturation and infiltration capacity':'Ground already soaked',
-        'Elevation, slope and flow paths':'Low ground and slopes',
-        'Impervious surface and land cover':'Concrete, roads and hard surfaces',
-        'Drainage, culverts and road barriers':'Drains, culverts and road layout'
-      };
-      return map[label] || label;
-    }
-    function strengthText(s){
-      if(s === 'strong') return 'strong public evidence';
-      if(s === 'medium') return 'some public evidence';
-      if(s === 'weak') return 'limited public evidence';
-      return 'evidence unclear';
-    }
-    function makeSummary(issue, factors){
-      const names = factors.slice(0,4).map(f => String(simpleFactorLabel(f.label) || '').toLowerCase());
-      if(!names.length) return 'The brain has not found enough public context for this question yet.';
-      return `This question may be related to ${names.join(', ')}. Treat these as possible reasons to investigate, not as an official conclusion.`;
+    function chooseIssue(){
+      const issues = state.brain?.issues || [];
+      const ranked = [...issues].map(issue=>({issue,score:scoreIssue(issue,q.value)})).sort((a,b)=>b.score-a.score);
+      return ranked[0]?.score > 0 ? ranked[0].issue : issues[0];
     }
     function inferredPlace(query){
       const known = ['Tallaght','Dublin','Cork','Galway','Limerick','Waterford','Sligo','Fingal','South Dublin','Dún Laoghaire','Kerry','Mayo'];
-      const found = known.find(place => norm(query).includes(norm(place)));
-      return found || 'your place';
+      return known.find(place => norm(query).includes(norm(place))) || 'your place';
     }
-    function relationshipVerb(issue){
-      const id = issue?.id || '';
-      if(id.includes('flood')) return 'may be affected by';
-      if(id.includes('road')) return 'may be explained by';
-      if(id.includes('service')) return 'may depend on';
-      if(id.includes('change')) return 'may have changed through';
-      return 'may relate to';
-    }
-    function renderRelationshipMap(issue, factors){
+    function render(){
+      const issue = chooseIssue();
+      if(!issue){ answer.innerHTML = '<p class="empty">No public context loaded yet.</p>'; return; }
+      const factors = issue.factors || [];
       const top = factors[0] || {};
       const source = (top.evidenceDatasets||[])[0] || {};
       const place = inferredPlace(q.value);
       const reason = simpleFactorLabel(top.label || 'a possible reason');
-      const sourceTitle = source.title || 'a public source';
-      const publisher = source.publisher || 'an Irish public body';
-      return `
-        <div class="relationship-map" aria-label="Plain English relationship map">
-          <p class="hint">Evidence trail</p>
-          <h3>How your question links to evidence</h3>
-          <ul class="connection-list">
-            <li><b>Your question:</b> asks about ${esc(place)}. <span>${esc(q.value)}</span></li>
-            <li><b>One possible reason:</b> ${esc(reason.toLowerCase())} could be part of the context. <span>This is a lead to investigate, not a final answer.</span></li>
-            <li><b>Evidence to inspect:</b> ${esc(sourceTitle)}. <span>Published by ${esc(publisher)}.</span></li>
-          </ul>
-          <div class="relationship-sentences">
-            <p><b>${esc(place)}</b> is the place or situation being asked about.</p>
-            <p><b>${esc(reason)}</b> is a possible reason to investigate, not a proven conclusion.</p>
-            <p><b>${esc(sourceTitle)}</b> is one public record used as evidence; open the source links below to inspect it.</p>
-          </div>
+      const names = factors.slice(0,4).map(f => String(simpleFactorLabel(f.label)||'').toLowerCase());
+      answer.innerHTML = `
+        <div class="answer-kicker"><span>Selected context:</span><b>${esc(place)}</b></div>
+        <h2 class="answer-title">${esc(String(issue.label || '').replace(/ context$/i,''))}</h2>
+        <div class="summary">This question may be related to ${esc(names.join(', '))}. These are possible reasons to investigate, not official conclusions.</div>
+        <ul class="trail">
+          <li><b>Your question:</b> asks about ${esc(place)}.<br/><span>${esc(q.value)}</span></li>
+          <li><b>One possible reason:</b> ${esc(reason.toLowerCase())} could be part of the context.<br/><span>This is a lead to inspect, not a final answer.</span></li>
+          <li><b>Evidence to inspect:</b> ${esc(source.title || 'a linked public source')}.<br/><span>Published by ${esc(source.publisher || 'a public body')}.</span></li>
+        </ul>
+        <div class="reason-list">
+          ${factors.slice(0,3).map(f => `<article class="reason"><span class="badge">${esc(strengthText(f.strongestEvidence))}</span><h4>${esc(simpleFactorLabel(f.label))}</h4><p>${esc(f.description || 'This may be relevant to the question.')}</p><details class="sources"><summary>Show public sources</summary>${(f.evidenceDatasets||[]).slice(0,3).map(e => `<a class="source-link" href="${esc(e.sourceUrl)}" target="_blank" rel="noreferrer"><strong>${esc(e.title)}</strong><br/><span>${esc(e.publisher)} · ${esc(e.license || 'licence to verify')}</span></a>`).join('') || '<p class="empty">No strong public source linked yet.</p>'}</details></article>`).join('')}
         </div>`;
     }
-    function rankedIssues(){
-      const brain = state.brain || {issues:[]};
-      return [...(brain.issues||[])].map(issue=>({issue,score:scoreIssue(issue,q.value)})).sort((a,b)=>b.score-a.score);
-    }
-    function chooseIssue(){
-      const brain = state.brain || {issues:[]};
-      if(state.selected) return (brain.issues||[]).find(i => i.id === state.selected) || brain.issues?.[0];
-      const ranked = rankedIssues();
-      return ranked[0]?.score > 0 ? ranked[0].issue : (brain.issues||[])[0];
-    }
-    function render(){
-      const brain = state.brain || {issues:[]};
-      const current = chooseIssue();
-      issuesEl.innerHTML = (brain.issues||[]).map(issue => `<button class="tab ${issue.id===current?.id?'active':''}" data-id="${esc(issue.id)}"><strong>${esc(plainIssueLabel(issue.label))} · ${(issue.factors||[]).length} reasons</strong></button>`).join('');
-      issuesEl.querySelectorAll('button').forEach(b => b.onclick = () => { state.selected = b.dataset.id; render(); });
-      renderIssue(current);
-    }
-    function renderIssue(issue){
-      if(!issue){ answer.innerHTML = '<h2 class="answer-title">No public brain loaded yet.</h2><p class="muted">Try again shortly.</p>'; return; }
-      const factors = (issue.factors||[]);
-      const evidenceTotal = factors.reduce((n,f)=>n+(f.evidenceCount||0),0);
-      answer.innerHTML = `
-        <p class="eyebrow">Answer preview</p>
-        <h2 class="answer-title">${esc(plainIssueLabel(issue.label))}</h2>
-        <div class="simple-summary">${esc(makeSummary(issue, factors))}</div>
-        ${renderRelationshipMap(issue, factors)}
-        <p class="muted small">Showing the top 3 possible reasons first. This answer type has ${factors.length} possible reasons and ${evidenceTotal} linked public evidence records.</p>
-        <div class="reason-list">
-          ${factors.slice(0,3).map(f => `
-            <article class="reason">
-              <div class="reason-head"><h4>${esc(simpleFactorLabel(f.label))}</h4><span class="badge ${esc(f.strongestEvidence)}">${esc(strengthText(f.strongestEvidence))}</span></div>
-              <p class="why">${esc(f.description || 'This may be relevant to the question.')}</p>
-              <details class="sources">
-                <summary>Show public sources</summary>
-                ${(f.evidenceDatasets||[]).slice(0,3).map(e => `<a class="source-link" href="${esc(e.sourceUrl)}" target="_blank" rel="noreferrer"><strong>${esc(e.title)}</strong><br><span class="muted small">${esc(e.publisher)} · ${esc(e.evidenceStrength || 'evidence')}</span></a>`).join('') || `<p class="muted small">No strong public source linked yet. ${esc(f.missingIfAbsent || '')}</p>`}
-              </details>
-            </article>
-          `).join('')}
-        </div>
-        <div class="missing"><strong>What may still be missing:</strong><ul>${(issue.missingEvidence||[]).slice(0,4).map(x => `<li>${esc(x)}</li>`).join('') || '<li>No major type of information is marked as missing yet, but this is still a public beta.</li>'}</ul></div>
-      `;
-    }
-    document.getElementById('askBtn').onclick = () => { state.selected = null; render(); };
-    q.addEventListener('keydown', e => { if(e.key === 'Enter'){ state.selected = null; render(); }});
-    document.querySelectorAll('[data-question]').forEach(b => b.onclick = () => { q.value = b.dataset.question; state.selected = null; render(); });
-    fetch('/data/brain-index.json').then(r=>r.json()).then(data=>{state.brain=data;render();}).catch(()=>{answer.innerHTML='<h2 class="answer-title">Brain data failed to load.</h2>';});
+    document.getElementById('askBtn').onclick = () => render();
+    q.addEventListener('keydown', e => { if(e.key === 'Enter') render(); });
+    document.querySelectorAll('[data-question]').forEach(b => b.onclick = () => { q.value = b.dataset.question; render(); });
+    fetch('/data/brain-index.json').then(r=>r.json()).then(data=>{state.brain=data;render();}).catch(()=>{answer.innerHTML='<p class="empty">Brain data failed to load.</p>';});
   </script>
 </body>
 </html>
