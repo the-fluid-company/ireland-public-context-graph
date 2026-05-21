@@ -26,6 +26,7 @@ describe('worker', () => {
     expect(names).toContain('get_agent_control_plane');
     expect(names).toContain('get_causal_tooling');
     expect(names).toContain('get_housing_planning_layers');
+    expect(names).toContain('get_housing_planning_context');
   });
 
   it('searches datasets through REST fallback', async () => {
@@ -96,6 +97,13 @@ describe('worker', () => {
     const json:any = await res.json();
     expect(Array.isArray(json.layers)).toBe(true);
     expect(json.claimBoundary).toContain('no planning, legal');
+
+    const context = await app.request('/api/housing-planning-context?q=transport&limit=20', {}, {} as any);
+    expect(context.status).toBe(200);
+    const contextJson:any = await context.json();
+    expect(Array.isArray(contextJson.nodes)).toBe(true);
+    expect(Array.isArray(contextJson.edges)).toBe(true);
+    expect(contextJson.claimBoundary).toContain('Connected dots');
   });
 
   it('serves derived facts and forecast readiness without unsupported accuracy claims', async () => {
