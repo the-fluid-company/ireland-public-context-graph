@@ -12,6 +12,7 @@ type ForecastReadiness = { generatedAt:string; version:string; purpose:string; r
 type SourceRegistryEntry = { id:string; name:string; url:string; owner:string; sourceType:string; domains:string[]; geography:string; accessMethod:string; license:string; updateFrequency:string; parserStatus:string; reliabilityScore:number; lastChecked:string; lastIngested:string | null; caveats:string[]; agentTasks:string[] };
 type HorizonSignals = { generatedAt:string; purpose:string; count:number; sources:any[]; signals:any[]; caveats:string[] };
 type CausalToolingIndex = { generatedAt:string; purpose:string; tools:any[]; workflow:string[]; caveats:string[] };
+type HousingPlanningLayersArtifact = { generatedAt:string; purpose:string; layerCount:number; totalFeatureCount:number; layers:any[]; downloadFormats:string[]; caveats:string[] };
 type RelatedDataset = Pick<Dataset, 'id'|'title'|'publisher'|'domains'|'formats'|'sourceUrl'|'license'|'description'|'quality'> & { score:number; reasons:string[] };
 
 const app = new Hono<{ Bindings: Env }>();
@@ -68,6 +69,7 @@ async function loadSourceRegistry(env: Env): Promise<SourceRegistryEntry[]> { re
 async function loadHorizonSignals(env: Env): Promise<HorizonSignals> { return loadJson(env, 'horizon-signals.json', { generatedAt:seedBundle.generatedAt, purpose:'Fallback horizon-signal artifact unavailable until next data build.', count:0, sources:[], signals:[], caveats:['No live horizon-signal artifact loaded.'] } as HorizonSignals); }
 async function loadAgentControlPlane(env: Env): Promise<Record<string, unknown>> { return loadJson(env, 'agent-control-plane.json', { generatedAt:seedBundle.generatedAt, purpose:'Fallback agent control plane unavailable until generated artifact is deployed.', agents:[], loop:[], selfHealing:[] } as Record<string, unknown>); }
 async function loadCausalTooling(env: Env): Promise<CausalToolingIndex> { return loadJson(env, 'causal-tooling-index.json', { generatedAt:seedBundle.generatedAt, purpose:'Fallback causal tooling index unavailable until generated artifact is deployed.', tools:[], workflow:[], caveats:['No generated causal tooling artifact loaded.'] } as CausalToolingIndex); }
+async function loadHousingPlanningLayers(env: Env): Promise<HousingPlanningLayersArtifact> { return loadJson(env, 'housing-planning-layers.json', { generatedAt:seedBundle.generatedAt, purpose:'Fallback housing/planning map-layer artifact unavailable until generated artifact is deployed.', layerCount:0, totalFeatureCount:0, layers:[], downloadFormats:[], caveats:['No generated housing/planning artifact loaded.'] } as HousingPlanningLayersArtifact); }
 function fallbackRealWorldGraph(): RealWorldGraph {
   const nodes = [
     { id:'place:ireland', type:'place', label:'Ireland', description:'National coverage fallback place.', datasetIds:seedBundle.datasets.map(d=>d.id), domains:['transport','roads','public-services'] },
@@ -118,7 +120,8 @@ function tools() { return [
   { name:'get_source_registry', description:'Return Ireland source registry entries with ownership, access method, parser status, reliability, caveats and agent tasks.', inputSchema:{ type:'object', properties:{ domain:{ type:'string' }, sourceType:{ type:'string' }, parserStatus:{ type:'string' }, limit:{ type:'number' } } } },
   { name:'get_horizon_signals', description:'Return current Ireland news/warning horizon signals for self-improving monitoring. These are weak evidence and must be verified before promotion into facts.', inputSchema:{ type:'object', properties:{ domain:{ type:'string' }, issue:{ type:'string' }, place:{ type:'string' }, limit:{ type:'number' } } } },
   { name:'get_agent_control_plane', description:'Return the self-driven agent loop, roles and self-healing policy for the Irish Public Brain.', inputSchema:{ type:'object', properties:{} } },
-  { name:'get_causal_tooling', description:'Return the toolchain for connecting datasets and testing causal hypotheses: ingestion, geospatial, graph, causal inference/discovery and serving tools. Context only; no causal conclusions.', inputSchema:{ type:'object', properties:{ category:{ type:'string' } } } }
+  { name:'get_causal_tooling', description:'Return the toolchain for connecting datasets and testing causal hypotheses: ingestion, geospatial, graph, causal inference/discovery and serving tools. Context only; no causal conclusions.', inputSchema:{ type:'object', properties:{ category:{ type:'string' } } } },
+  { name:'get_housing_planning_layers', description:'Return normalized public housing and planning map layers: counts, schemas, extents, source URLs and sample GeoJSON features. Context only; no planning/legal conclusions.', inputSchema:{ type:'object', properties:{ layer_id:{ type:'string' }, includeSamples:{ type:'boolean' } } } }
 ]; }
 
 async function searchCatalog(args: any, env: Env) {
@@ -241,6 +244,13 @@ async function getCausalTooling(args: any, env: Env) {
   const tools = category ? index.tools.filter((t:any) => t.category === category) : index.tools;
   return { generatedAt:index.generatedAt, purpose:index.purpose, tools, workflow:index.workflow, caveats:index.caveats, claimBoundary:'Causal tooling is for hypothesis testing and refutation. It does not turn public metadata into causal proof.', disclaimers:claim() };
 }
+async function getHousingPlanningLayers(args: any, env: Env) {
+  const artifact = await loadHousingPlanningLayers(env);
+  const layerId = args?.layer_id ? String(args.layer_id) : '';
+  const includeSamples = args?.includeSamples !== false;
+  const layers = (layerId ? artifact.layers.filter((l:any) => l.id === layerId) : artifact.layers).map((l:any) => includeSamples ? l : { ...l, sampleFeatures:[] });
+  return { generatedAt:artifact.generatedAt, purpose:artifact.purpose, layerCount:layers.length, totalFeatureCount:layers.reduce((n:number,l:any)=>n+(l.featureCount ?? 0),0), layers, downloadFormats:artifact.downloadFormats, caveats:artifact.caveats, claimBoundary:'Housing/planning layers are public source data and sample geometry only; no planning, legal, valuation or development conclusions.', disclaimers:claim() };
+}
 
 async function callTool(name: string, args: any, env: Env) {
   if (name === 'get_real_world_graph') return realWorldGraph(args, env);
@@ -252,6 +262,7 @@ async function callTool(name: string, args: any, env: Env) {
   if (name === 'get_horizon_signals') return getHorizonSignals(args, env);
   if (name === 'get_agent_control_plane') return getAgentControlPlane(args, env);
   if (name === 'get_causal_tooling') return getCausalTooling(args, env);
+  if (name === 'get_housing_planning_layers') return getHousingPlanningLayers(args, env);
   const b = await loadBundle(env);
   if (name === 'search_catalog' || name === 'list_datasets') return searchCatalog(args, env);
   if (name === 'get_dataset_metadata') { const datasets = await loadDatasets(env); const dataset = datasets.find(d => d.id === args.dataset_id) ?? null; return { dataset, sourceRecord:(await loadSources(env)).find(s => s.datasetId === args.dataset_id) ?? null, disclaimers:claim(b.disclaimers) }; }
@@ -280,6 +291,7 @@ async function callTool(name: string, args: any, env: Env) {
   if (name === 'get_horizon_signals') return getHorizonSignals(args, env);
   if (name === 'get_agent_control_plane') return getAgentControlPlane(args, env);
   if (name === 'get_causal_tooling') return getCausalTooling(args, env);
+  if (name === 'get_housing_planning_layers') return getHousingPlanningLayers(args, env);
   if (name === 'get_layer_manifest') {
     const loaded = await loadLayerManifest(env);
     const fallbackDomains = [...new Set(b.datasets.flatMap(d => d.domains))];
@@ -288,11 +300,11 @@ async function callTool(name: string, args: any, env: Env) {
   }
   if (name === 'find_related_datasets') return findRelatedDatasets(args, env);
   if (name === 'get_entity_neighborhood') { const limit = pageLimit(args, 200, 1000); const center = b.entities.find(e => e.id === args.entity_id) ?? null; const relationships = b.relationships.filter(r => (r.subject === args.entity_id || r.object === args.entity_id) && (!args.predicate || r.predicate === args.predicate)).slice(0, limit); const ids = new Set([args.entity_id, ...relationships.flatMap(r => [r.subject, r.object])]); return { center, entities:b.entities.filter(e => ids.has(e.id)), relationships, observations:b.observations.filter(o => ids.has(o.entityId)), disclaimers:claim(b.disclaimers) }; }
-  if (name === 'get_export_links') { const base = env.ARTIFACT_BASE_URL || 'https://ireland-public-context-graph-mcp.amreshtech.workers.dev/artifacts'; const files = ['context-bundle.json','dataset-catalog.json','source-records.json','coverage-report.json','search-index.json','entities.json','relationships.json','observations.json','graph-index.json','layer-manifest.json','publishers.json','brain-index.json','real-world-graph.json','real-world-graph-full.json','derived-facts.json','forecast-readiness.json','horizon-signals.json','source-registry.json','agent-control-plane.json','manifest.json']; return { links: files.map(f => ({ name:f, url:`${base}/${f}` })), disclaimers:claim(b.disclaimers) }; }
+  if (name === 'get_export_links') { const base = env.ARTIFACT_BASE_URL || 'https://ireland-public-context-graph-mcp.amreshtech.workers.dev/artifacts'; const files = ['context-bundle.json','dataset-catalog.json','source-records.json','coverage-report.json','search-index.json','entities.json','relationships.json','observations.json','graph-index.json','layer-manifest.json','publishers.json','brain-index.json','real-world-graph.json','real-world-graph-full.json','derived-facts.json','forecast-readiness.json','horizon-signals.json','source-registry.json','causal-tooling-index.json','housing-planning-layers.json','agent-control-plane.json','manifest.json']; return { links: files.map(f => ({ name:f, url:`${base}/${f}` })), disclaimers:claim(b.disclaimers) }; }
   throw new Error(`Unknown tool: ${name}`);
 }
 
-app.get('/', c => c.json({ name:c.env.SERVICE_NAME ?? 'Ireland Public Context Graph', version:c.env.SERVICE_VERSION ?? '0.1.0', endpoints:['/health','/mcp','/api/search','/api/datasets/:id','/api/entities/:id','/api/context','/api/brain','/api/ask','/api/factors','/api/missing-evidence','/api/real-world-graph','/api/real-world-entities','/api/derived-facts','/api/forecast-readiness','/api/horizon-signals','/api/source-registry','/api/agent-control-plane','/api/layers','/api/related/:dataset_id','/api/coverage','/api/exports'], claimBoundary:'data/context only; no conclusions' }));
+app.get('/', c => c.json({ name:c.env.SERVICE_NAME ?? 'Ireland Public Context Graph', version:c.env.SERVICE_VERSION ?? '0.1.0', endpoints:['/health','/mcp','/api/search','/api/datasets/:id','/api/entities/:id','/api/context','/api/brain','/api/ask','/api/factors','/api/missing-evidence','/api/real-world-graph','/api/real-world-entities','/api/derived-facts','/api/forecast-readiness','/api/horizon-signals','/api/source-registry','/api/agent-control-plane','/api/housing-planning-layers','/api/layers','/api/related/:dataset_id','/api/coverage','/api/exports'], claimBoundary:'data/context only; no conclusions' }));
 app.get('/health', c => c.json({ ok:true, service:c.env.SERVICE_NAME ?? 'Ireland Public Context Graph' }));
 app.get('/api/search', async c => c.json(await searchCatalog({ query:c.req.query('q'), domain:c.req.query('domain'), publisher:c.req.query('publisher'), format:c.req.query('format'), limit:c.req.query('limit') ?? 50, offset:c.req.query('offset') ?? 0 }, c.env)));
 app.get('/api/datasets', async c => c.json(await searchCatalog({ query:c.req.query('q'), domain:c.req.query('domain'), limit:c.req.query('limit') ?? 100, offset:c.req.query('offset') ?? 0 }, c.env)));
@@ -313,6 +325,8 @@ app.get('/api/forecast-readiness', async c => c.json(await callTool('get_forecas
 app.get('/api/horizon-signals', async c => c.json(await callTool('get_horizon_signals', { domain:c.req.query('domain'), issue:c.req.query('issue'), place:c.req.query('place'), limit:c.req.query('limit') ?? 25 }, c.env)));
 app.get('/api/source-registry', async c => c.json(await callTool('get_source_registry', { domain:c.req.query('domain'), sourceType:c.req.query('sourceType'), parserStatus:c.req.query('parserStatus'), limit:c.req.query('limit') ?? 100 }, c.env)));
 app.get('/api/agent-control-plane', async c => c.json(await callTool('get_agent_control_plane', {}, c.env)));
+app.get('/api/housing-planning-layers', async c => c.json(await callTool('get_housing_planning_layers', { layer_id:c.req.query('layer_id'), includeSamples:c.req.query('includeSamples') !== 'false' }, c.env)));
+app.get('/api/causal-tooling', async c => c.json(await callTool('get_causal_tooling', { category:c.req.query('category') }, c.env)));
 app.get('/api/layers', async c => c.json(await callTool('get_layer_manifest', { domain:c.req.query('domain') }, c.env)));
 app.get('/api/related/:dataset_id', async c => c.json(await callTool('find_related_datasets', { dataset_id:c.req.param('dataset_id'), limit:c.req.query('limit') ?? 25 }, c.env)));
 app.get('/api/coverage', async c => c.json(await callTool('get_data_coverage', {}, c.env)));

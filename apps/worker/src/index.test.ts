@@ -24,6 +24,8 @@ describe('worker', () => {
     expect(names).toContain('get_source_registry');
     expect(names).toContain('get_horizon_signals');
     expect(names).toContain('get_agent_control_plane');
+    expect(names).toContain('get_causal_tooling');
+    expect(names).toContain('get_housing_planning_layers');
   });
 
   it('searches datasets through REST fallback', async () => {
@@ -86,6 +88,14 @@ describe('worker', () => {
     expect(Array.isArray(json.signals)).toBe(true);
     expect(Array.isArray(json.sourceStatus)).toBe(true);
     expect(json.claimBoundary).toContain('weak current-event metadata');
+  });
+
+  it('serves housing and planning layer artifact without conclusions', async () => {
+    const res = await app.request('/api/housing-planning-layers?includeSamples=false', {}, {} as any);
+    expect(res.status).toBe(200);
+    const json:any = await res.json();
+    expect(Array.isArray(json.layers)).toBe(true);
+    expect(json.claimBoundary).toContain('no planning, legal');
   });
 
   it('serves derived facts and forecast readiness without unsupported accuracy claims', async () => {
