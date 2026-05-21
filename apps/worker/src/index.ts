@@ -11,6 +11,7 @@ type DerivedFact = { id:string; title:string; finding:string; evidence:string[];
 type ForecastReadiness = { generatedAt:string; version:string; purpose:string; requiredAccuracy:number; claimStatus:string; capabilities:any[]; benchmarkGates:string[]; caveats:string[] };
 type SourceRegistryEntry = { id:string; name:string; url:string; owner:string; sourceType:string; domains:string[]; geography:string; accessMethod:string; license:string; updateFrequency:string; parserStatus:string; reliabilityScore:number; lastChecked:string; lastIngested:string | null; caveats:string[]; agentTasks:string[] };
 type HorizonSignals = { generatedAt:string; purpose:string; count:number; sources:any[]; signals:any[]; caveats:string[] };
+type CausalToolingIndex = { generatedAt:string; purpose:string; tools:any[]; workflow:string[]; caveats:string[] };
 type RelatedDataset = Pick<Dataset, 'id'|'title'|'publisher'|'domains'|'formats'|'sourceUrl'|'license'|'description'|'quality'> & { score:number; reasons:string[] };
 
 const app = new Hono<{ Bindings: Env }>();
@@ -66,6 +67,7 @@ async function loadForecastReadiness(env: Env): Promise<ForecastReadiness | unde
 async function loadSourceRegistry(env: Env): Promise<SourceRegistryEntry[]> { return loadJson(env, 'source-registry.json', [] as SourceRegistryEntry[]); }
 async function loadHorizonSignals(env: Env): Promise<HorizonSignals> { return loadJson(env, 'horizon-signals.json', { generatedAt:seedBundle.generatedAt, purpose:'Fallback horizon-signal artifact unavailable until next data build.', count:0, sources:[], signals:[], caveats:['No live horizon-signal artifact loaded.'] } as HorizonSignals); }
 async function loadAgentControlPlane(env: Env): Promise<Record<string, unknown>> { return loadJson(env, 'agent-control-plane.json', { generatedAt:seedBundle.generatedAt, purpose:'Fallback agent control plane unavailable until generated artifact is deployed.', agents:[], loop:[], selfHealing:[] } as Record<string, unknown>); }
+async function loadCausalTooling(env: Env): Promise<CausalToolingIndex> { return loadJson(env, 'causal-tooling-index.json', { generatedAt:seedBundle.generatedAt, purpose:'Fallback causal tooling index unavailable until generated artifact is deployed.', tools:[], workflow:[], caveats:['No generated causal tooling artifact loaded.'] } as CausalToolingIndex); }
 function fallbackRealWorldGraph(): RealWorldGraph {
   const nodes = [
     { id:'place:ireland', type:'place', label:'Ireland', description:'National coverage fallback place.', datasetIds:seedBundle.datasets.map(d=>d.id), domains:['transport','roads','public-services'] },
@@ -115,7 +117,8 @@ function tools() { return [
   { name:'get_forecast_readiness', description:'Return hazard forecast readiness, evidence signals, benchmark gates and current 99% accuracy claim status.', inputSchema:{ type:'object', properties:{ hazard:{ type:'string' } } } },
   { name:'get_source_registry', description:'Return Ireland source registry entries with ownership, access method, parser status, reliability, caveats and agent tasks.', inputSchema:{ type:'object', properties:{ domain:{ type:'string' }, sourceType:{ type:'string' }, parserStatus:{ type:'string' }, limit:{ type:'number' } } } },
   { name:'get_horizon_signals', description:'Return current Ireland news/warning horizon signals for self-improving monitoring. These are weak evidence and must be verified before promotion into facts.', inputSchema:{ type:'object', properties:{ domain:{ type:'string' }, issue:{ type:'string' }, place:{ type:'string' }, limit:{ type:'number' } } } },
-  { name:'get_agent_control_plane', description:'Return the self-driven agent loop, roles and self-healing policy for the Irish Public Brain.', inputSchema:{ type:'object', properties:{} } }
+  { name:'get_agent_control_plane', description:'Return the self-driven agent loop, roles and self-healing policy for the Irish Public Brain.', inputSchema:{ type:'object', properties:{} } },
+  { name:'get_causal_tooling', description:'Return the toolchain for connecting datasets and testing causal hypotheses: ingestion, geospatial, graph, causal inference/discovery and serving tools. Context only; no causal conclusions.', inputSchema:{ type:'object', properties:{ category:{ type:'string' } } } }
 ]; }
 
 async function searchCatalog(args: any, env: Env) {
@@ -232,6 +235,12 @@ async function getHorizonSignals(args: any, env: Env) {
 async function getAgentControlPlane(_args: any, env: Env) {
   return { controlPlane:await loadAgentControlPlane(env), claimBoundary:'Agentic loops propose, test and publish evidence-backed artifacts only; no invented facts or official conclusions.', disclaimers:claim() };
 }
+async function getCausalTooling(args: any, env: Env) {
+  const index = await loadCausalTooling(env);
+  const category = args?.category ? String(args.category) : '';
+  const tools = category ? index.tools.filter((t:any) => t.category === category) : index.tools;
+  return { generatedAt:index.generatedAt, purpose:index.purpose, tools, workflow:index.workflow, caveats:index.caveats, claimBoundary:'Causal tooling is for hypothesis testing and refutation. It does not turn public metadata into causal proof.', disclaimers:claim() };
+}
 
 async function callTool(name: string, args: any, env: Env) {
   if (name === 'get_real_world_graph') return realWorldGraph(args, env);
@@ -242,6 +251,7 @@ async function callTool(name: string, args: any, env: Env) {
   if (name === 'get_source_registry') return getSourceRegistry(args, env);
   if (name === 'get_horizon_signals') return getHorizonSignals(args, env);
   if (name === 'get_agent_control_plane') return getAgentControlPlane(args, env);
+  if (name === 'get_causal_tooling') return getCausalTooling(args, env);
   const b = await loadBundle(env);
   if (name === 'search_catalog' || name === 'list_datasets') return searchCatalog(args, env);
   if (name === 'get_dataset_metadata') { const datasets = await loadDatasets(env); const dataset = datasets.find(d => d.id === args.dataset_id) ?? null; return { dataset, sourceRecord:(await loadSources(env)).find(s => s.datasetId === args.dataset_id) ?? null, disclaimers:claim(b.disclaimers) }; }
@@ -269,6 +279,7 @@ async function callTool(name: string, args: any, env: Env) {
   if (name === 'get_source_registry') return getSourceRegistry(args, env);
   if (name === 'get_horizon_signals') return getHorizonSignals(args, env);
   if (name === 'get_agent_control_plane') return getAgentControlPlane(args, env);
+  if (name === 'get_causal_tooling') return getCausalTooling(args, env);
   if (name === 'get_layer_manifest') {
     const loaded = await loadLayerManifest(env);
     const fallbackDomains = [...new Set(b.datasets.flatMap(d => d.domains))];
