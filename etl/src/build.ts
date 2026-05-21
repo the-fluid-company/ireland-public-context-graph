@@ -213,6 +213,87 @@ function buildHousingPlanningContext(layersArtifact: HousingPlanningLayersArtifa
   return { generatedAt:now, purpose:'Connected-dot context graph for public Irish housing and planning data. It links ingested map layers to candidate factors, supporting datasets, missing evidence and reusable question paths. It does not produce planning, legal, valuation, capacity or causation conclusions.', nodeCount:nodeList.length, edgeCount:edgeList.length, nodes:nodeList, edges:edgeList, layerSummary:layersArtifact.layers.map(l => ({ layerId:l.id, title:l.title, featureCount:l.featureCount, geometryRole:l.geometryRole, sourceUrl:l.sourceUrl, serviceUrl:l.serviceUrl, license:l.license })), missingEvidence:gaps, questionTemplates:questions, caveats:['All links are context/evidence paths only.', 'Full site-level answers require validated geometry, status normalization, temporal snapshots and source-specific licences.', 'No layer or edge should be read as an approval, development potential, fault, causation or recommendation.'] };
 }
 
+
+function buildWholeContextBrain(housingLayers: HousingPlanningLayersArtifact, housingContext: HousingPlanningContextArtifact) {
+  const nodes = new Map<string, any>();
+  const edges = new Map<string, any>();
+  const addNode = (n:any) => { if (!nodes.has(n.id)) nodes.set(n.id, n); else { const e = nodes.get(n.id); e.datasetIds = [...new Set([...(e.datasetIds ?? []), ...(n.datasetIds ?? [])])].slice(0,500); } };
+  const addEdge = (e:any) => { if (!edges.has(e.id)) edges.set(e.id, e); };
+  const confidenceFor = (score:number) => score >= 22 ? 'derived-high' : score >= 12 ? 'derived-medium' : 'derived-low';
+  addNode({ id:'brain:ireland-public-context', type:'brain', label:'Ireland Public Context Brain', description:'Cross-domain semantic/evidence memory linking places, datasets, sources, factors, questions, gaps and signals across the whole knowledge base.', datasetIds:datasets.slice(0,500).map(d=>d.id), properties:{ datasetCount:datasets.length, sourceCount:sourceRegistry.length, domainCount:domains.length, claimBoundary:'context/evidence only' } });
+  for (const d of domains) {
+    const ds = datasets.filter(x => x.domains.includes(d));
+    addNode({ id:`domain:${d}`, type:'domain', label:d.replace('-', ' '), description:`${ds.length} datasets connected to ${d.replace('-', ' ')} context.`, datasetIds:ds.slice(0,300).map(x=>x.id), properties:{ datasetCount:ds.length, geospatialCandidateCount:ds.filter(hasGeospatialResource).length, temporalSignalCount:ds.filter(hasTemporalSignal).length } });
+    addEdge({ id:`brain:activates:domain:${d}`, subject:'brain:ireland-public-context', predicate:'activates_domain', object:`domain:${d}`, datasetIds:ds.slice(0,50).map(x=>x.id), confidence:'derived-high', evidence:'Canonical public-context domain layer.', caveats:['Domain activation is a retrieval path, not a conclusion.'] });
+  }
+  const domainLinks: [DatasetDomain, DatasetDomain, string][] = [
+    ['planning','housing','Planning and zoning records are interpreted with housing supply and residential demand context.'], ['housing','demographics','Housing activity needs population, household and affordability context.'], ['planning','environment','Planning sites need flood, water, habitat and environmental constraint context.'], ['planning','transport','Development sites need transport access and road exposure context.'], ['housing','public-services','Housing activity needs schools, health and civic service access context.'], ['roads','collisions','Road infrastructure and collision outcome labels are linked for safety context.'], ['weather','environment','Weather signals activate flood, soil, land and environmental pathways.'], ['weather','roads','Weather activates slippery-road and transport-disruption context.'], ['economy','housing','Economic indicators activate affordability, delivery and market context.'], ['health','demographics','Health-service access and population need are linked.'], ['education','demographics','School capacity and population/age structure are linked.'], ['energy','planning','Energy infrastructure and planning constraints are linked.']
+  ];
+  for (const [a,b,why] of domainLinks) {
+    addEdge({ id:`brain:domain:${a}:coactivates:${b}`, subject:`domain:${a}`, predicate:'co_activates', object:`domain:${b}`, datasetIds:datasets.filter(d=>d.domains.includes(a)||d.domains.includes(b)).slice(0,50).map(d=>d.id), confidence:'derived-medium', evidence:why, caveats:['Co-activation is a context path requiring place/time/entity joins before stronger interpretation.'] });
+    addEdge({ id:`brain:domain:${b}:coactivates:${a}`, subject:`domain:${b}`, predicate:'co_activates', object:`domain:${a}`, datasetIds:datasets.filter(d=>d.domains.includes(a)||d.domains.includes(b)).slice(0,50).map(d=>d.id), confidence:'derived-medium', evidence:why, caveats:['Co-activation is a context path requiring place/time/entity joins before stronger interpretation.'] });
+  }
+  for (const s of sourceRegistry) {
+    const sid = s.id.replace('source-registry:','source:');
+    addNode({ id:sid, type:'source', label:s.name, description:`${s.sourceType} source via ${s.accessMethod}; parser ${s.parserStatus}.`, datasetIds:[], properties:{ url:s.url, owner:s.owner, sourceType:s.sourceType, domains:s.domains, accessMethod:s.accessMethod, parserStatus:s.parserStatus, reliabilityScore:s.reliabilityScore, caveats:s.caveats } });
+    addEdge({ id:`brain:source:${slug(s.id)}:registered`, subject:'brain:ireland-public-context', predicate:'has_source', object:sid, datasetIds:[], confidence:s.parserStatus === 'implemented' ? 'source' : 'derived-medium', evidence:'Source registry entry.', caveats:s.caveats });
+    for (const d of s.domains) addEdge({ id:`brain:source:${slug(s.id)}:domain:${d}`, subject:sid, predicate:'feeds_domain', object:`domain:${d}`, datasetIds:[], confidence:'derived-medium', evidence:'Source registry domain classification.', caveats:['Source must be parsed and licensed before full downstream reuse.'] });
+  }
+  for (const issue of brainIndex.issues) {
+    const iid = `issue:${issue.id}`;
+    addNode({ id:iid, type:'issue', label:issue.label, description:(issue.examples ?? []).join(' · '), datasetIds:[...new Set(issue.factors.flatMap((f:any)=>f.evidenceDatasets.map((e:any)=>e.datasetId)))].slice(0,300), properties:{ examples:issue.examples, missingEvidence:issue.missingEvidence, agentPrompt:issue.agentPrompt } });
+    addEdge({ id:`brain:issue:${issue.id}`, subject:'brain:ireland-public-context', predicate:'has_issue_memory', object:iid, datasetIds:[], confidence:'derived-high', evidence:'Curated public-context issue memory.', caveats:['Issue memory retrieves evidence and gaps only.'] });
+    for (const f of issue.factors) {
+      const fid = `factor:${f.id}`;
+      addNode({ id:fid, type:'factor', label:f.label, description:f.description, datasetIds:f.evidenceDatasets.map((e:any)=>e.datasetId).slice(0,300), properties:{ relationship:f.relationship, domains:f.domains, keywords:f.keywords, requiredEvidence:f.requiredEvidence, strongestEvidence:f.strongestEvidence, missing:f.missing } });
+      addEdge({ id:`brain:${issue.id}:factor:${f.id}`, subject:iid, predicate:'activates_factor', object:fid, datasetIds:f.evidenceDatasets.map((e:any)=>e.datasetId).slice(0,50), confidence:f.strongestEvidence === 'strong' ? 'derived-high' : f.strongestEvidence === 'medium' ? 'derived-medium' : 'derived-low', evidence:'Issue-to-factor activation from brain index.', caveats:['Factor is a candidate context mechanism, not causation.'] });
+      for (const d of f.domains) addEdge({ id:`brain:factor:${f.id}:domain:${d}`, subject:fid, predicate:'activates_domain', object:`domain:${d}`, datasetIds:f.evidenceDatasets.map((e:any)=>e.datasetId).slice(0,50), confidence:'derived-medium', evidence:'Factor domain membership.', caveats:['Requires source-level evidence before interpretation.'] });
+      for (const e of f.evidenceDatasets.slice(0,8)) {
+        const did = `dataset:${e.datasetId}`;
+        addNode({ id:did, type:'dataset', label:e.title, description:`${e.publisher}; ${e.evidenceStrength} factor evidence.`, datasetIds:[e.datasetId], properties:{ publisher:e.publisher, sourceUrl:e.sourceUrl, formats:e.formats, license:e.license, score:e.score, reasons:e.reasons } });
+        addEdge({ id:`brain:dataset:${slug(e.datasetId)}:evidence:${f.id}`, subject:did, predicate:'evidence_for_factor', object:fid, datasetIds:[e.datasetId], confidence:e.evidenceStrength === 'strong' ? 'derived-high' : e.evidenceStrength === 'medium' ? 'derived-medium' : 'derived-low', evidence:e.reasons.join('; '), caveats:e.caveats.slice(0,3) });
+      }
+    }
+  }
+  for (const l of housingLayers.layers) {
+    addNode({ id:`layer:${l.id}`, type:'map-layer', label:l.title, description:`${l.featureCount ?? 'unknown'} ${l.geometryRole} features from public source.`, datasetIds:[l.datasetId], properties:{ sourceUrl:l.sourceUrl, serviceUrl:l.serviceUrl, featureCount:l.featureCount, geometryType:l.geometryType, license:l.license } });
+    addEdge({ id:`brain:map-layer:${l.id}`, subject:'brain:ireland-public-context', predicate:'has_map_layer', object:`layer:${l.id}`, datasetIds:[l.datasetId], confidence:l.status === 'ok' ? 'source' : 'derived-low', evidence:'Ingested housing/planning map-layer adapter.', caveats:l.caveats });
+    for (const d of l.domains) addEdge({ id:`brain:map-layer:${l.id}:domain:${d}`, subject:`layer:${l.id}`, predicate:'feeds_domain', object:`domain:${d}`, datasetIds:[l.datasetId], confidence:'source', evidence:'Layer domain classification.', caveats:['Layer geometry must be joined to places/sites before local answers.'] });
+  }
+  for (const n of housingContext.nodes) {
+    const id = `housing-context:${n.id}`;
+    addNode({ id, type:`housing-${n.type}`, label:n.label, description:n.description, datasetIds:n.datasetIds, properties:{ ...n.properties, sourceContextId:n.id } });
+    addEdge({ id:`brain:housing-context:${slug(n.id)}`, subject:'brain:ireland-public-context', predicate:'imports_context_node', object:id, datasetIds:n.datasetIds, confidence:n.evidenceStrength === 'source' ? 'source' : 'derived-medium', evidence:'Housing/planning connected-dot subgraph.', caveats:['Subgraph context only.'] });
+  }
+  for (const e of housingContext.edges) addEdge({ id:`brain:housing-edge:${slug(e.id)}`, subject:`housing-context:${e.subject}`, predicate:e.predicate, object:`housing-context:${e.object}`, datasetIds:e.datasetIds, confidence:e.confidence, evidence:e.evidence, caveats:e.caveats });
+  const memoryPaths = [
+    { id:'memory:place-to-everything', trigger:'place/site/address/area', path:['place','map layers','planning/housing','roads/transport','environment/flood','services','demographics','economy','horizon signals'], output:'candidate context web with evidence, missingness and source links' },
+    { id:'memory:event-to-causes', trigger:'event/outcome/anomaly', path:['event label','time window','nearby assets','weather/environment','movement/transport','policy/news','controls/comparators','missing confounders'], output:'causal hypothesis workbench, not conclusion' },
+    { id:'memory:dataset-to-brain', trigger:'dataset/source', path:['publisher','licence','domains','formats','geography','time','entities','factors','gaps'], output:'where this source can activate the wider brain' },
+    { id:'memory:planning-to-public-impact', trigger:'planning application/housing site', path:['site geometry','zoning','pipeline','transport','services','environment','demographics','policy timeline','market/economy gaps'], output:'whole-context evidence checklist' }
+  ];
+  for (const m of memoryPaths) {
+    addNode({ id:m.id, type:'memory-path', label:m.trigger, description:m.output, datasetIds:[], properties:m });
+    addEdge({ id:`brain:memory-path:${slug(m.id)}`, subject:'brain:ireland-public-context', predicate:'has_memory_path', object:m.id, datasetIds:[], confidence:'derived-high', evidence:'Brain-wide activation route.', caveats:['Memory paths are retrieval templates, not answers.'] });
+  }
+  const missingEvidence = [
+    ...coverage.missingness.map((m:any) => ({ scope:m.scope, gap:m.note, impact:m.impact, next:'source-specific adapter or licence/schema validation' })),
+    ...housingContext.missingEvidence.map((g:any) => ({ scope:g.id, gap:g.label, impact:g.whyItMatters, next:g.nextAdapter })),
+    ...forecastReadiness.capabilities.flatMap((c:any) => c.blockers.map((b:string) => ({ scope:c.hazard, gap:b, impact:`Blocks validated ${c.label}`, next:'build benchmark/label adapter before prediction claims' })))
+  ];
+  const activationIndex = [
+    { terms:['planning','permission','application','zoning','housing','site'], activates:['domain:planning','domain:housing','memory:planning-to-public-impact'] },
+    { terms:['flood','rain','river','water','storm'], activates:['domain:weather','domain:environment','issue:flood-context','memory:event-to-causes'] },
+    { terms:['road','collision','traffic','slippery','junction'], activates:['domain:roads','domain:transport','domain:collisions','issue:road-safety-context'] },
+    { terms:['school','hospital','service','access','capacity'], activates:['domain:education','domain:health','domain:public-services','issue:public-service-access'] },
+    { terms:['company','developer','market','price','rent','economy'], activates:['domain:economy','domain:housing','memory:planning-to-public-impact'] }
+  ];
+  const nodeList = [...nodes.values()].sort((a,b)=>String(a.type).localeCompare(String(b.type))||String(a.label).localeCompare(String(b.label))).slice(0, 2500);
+  const nodeIds = new Set(nodeList.map(n=>n.id));
+  const edgeList = [...edges.values()].filter(e => nodeIds.has(e.subject) && nodeIds.has(e.object)).sort((a,b)=>String(a.predicate).localeCompare(String(b.predicate))||String(a.subject).localeCompare(String(b.subject))).slice(0, 10000);
+  return { generatedAt:now, version:now.slice(0,10), purpose:'Whole-knowledge-base public context brain. Selecting any place, event, dataset, issue or factor should activate related domains, sources, evidence, gaps and causal-hypothesis paths across the entire Irish public-data graph. It retrieves connected context; it does not assert official truth or causation.', counts:{ nodes:nodeList.length, edges:edgeList.length, datasets:datasets.length, sources:sourceRegistry.length, domains:domains.length, memoryPaths:memoryPaths.length, missingEvidence:missingEvidence.length }, nodes:nodeList, edges:edgeList, activationIndex, memoryPaths, missingEvidence, caveats:['This is an activation/evidence graph, not a truth engine.', 'Causation requires outcome labels, temporal ordering, controls/counterfactuals and confounder checks.', 'Public data links can be stale, incomplete, mislicensed or spatially imprecise until source adapters validate them.'] };
+}
+
 const HORIZON_FEEDS = [
   { id:'source-registry:rte-news-rss', name:'RTÉ News Ireland feed', url:'https://www.rte.ie/feeds/rss/?index=/news/&limit=100', reliabilityScore:0.76, domains:['public-services','economy','environment','transport','health'] as DatasetDomain[] },
   { id:'source-registry:rte-news-headlines', name:'RTÉ News headlines feed', url:'https://www.rte.ie/feeds/rss/?index=/news/ireland/&limit=100', reliabilityScore:0.74, domains:['public-services','economy','environment','transport','health'] as DatasetDomain[] },
@@ -547,6 +628,7 @@ const forecastReadiness = buildForecastReadiness();
 const horizonSignals = await fetchHorizonSignals();
 const housingPlanningLayers = await buildHousingPlanningLayers();
 const housingPlanningContext = buildHousingPlanningContext(housingPlanningLayers);
+const contextBrain = buildWholeContextBrain(housingPlanningLayers, housingPlanningContext);
 const out=resolve('dist/public-data'); mkdirSync(out,{recursive:true});
 const web=resolve('../apps/web/public/data'); mkdirSync(web,{recursive:true});
 const files: Record<string, unknown> = {
@@ -570,13 +652,14 @@ const files: Record<string, unknown> = {
   'causal-tooling-index.json':causalToolingIndex,
   'housing-planning-layers.json':housingPlanningLayers,
   'housing-planning-context.json':housingPlanningContext,
+  'context-brain.json':contextBrain,
   'agent-control-plane.json':{ generatedAt:now, purpose:'Agentic self-improving control plane for Ireland Public Brain.', agents:[{ id:'source-discovery-agent', role:'Find new Ireland-relevant sources and update source-registry candidates.' },{ id:'ingestion-agent', role:'Run parsers, validate records, and write release artifacts.' },{ id:'entity-resolution-agent', role:'Link places, agencies, assets, events and datasets with same_as/near/overlap candidates.' },{ id:'evidence-audit-agent', role:'Detect stale, contradictory, uncited or weak evidence.' },{ id:'insight-agent', role:'Generate reproducible cross-domain insight candidates with caveats.' }], loop:['discover sources','classify and score reliability','ingest or monitor','normalize schema','resolve entities','create candidate relationships','score evidence','run tests and no-uncited-claim gates','publish artifacts','flag stale/broken sources for repair'], selfHealing:['retry transient fetch failures','quarantine malformed records','downgrade stale sources','expire unsupported relationships','surface parser blockers in source registry'], claimBoundary:'Agents may propose evidence-backed candidate links only; they must not invent facts or issue official conclusions.' },
-  'manifest.json':{version:bundle.version,generatedAt:bundle.generatedAt,files:['context-bundle.json','dataset-catalog.json','source-records.json','coverage-report.json','search-index.json','entities.json','relationships.json','observations.json','graph-index.json','layer-manifest.json','publishers.json','brain-index.json','real-world-graph.json','derived-facts.json','forecast-readiness.json','horizon-signals.json','source-registry.json','causal-tooling-index.json','housing-planning-layers.json','housing-planning-context.json','agent-control-plane.json'], discoveredFromDataGovIe:discovered.length, datasetCount:datasets.length, publisherCount:publishers.length, entityCount:entities.length, relationshipCount:relationships.length, layerCount:layerManifest.layers.length, brainIssueCount:brainIndex.issueCount, brainFactorCount:brainIndex.factorCount, brainEvidenceEdgeCount:brainIndex.evidenceEdgeCount, realWorldNodeCount:realWorldIndex.counts.nodes, realWorldRelationshipCount:realWorldIndex.counts.relationships, derivedFactCount:derivedFacts.length, forecastCapabilityCount:forecastReadiness.capabilities.length, horizonSignalCount:horizonSignals.count, sourceRegistryCount:sourceRegistry.length, globalSignalSourceCount:globalSignalSources.length, causalToolingCount:causalToolingIndex.tools.length, housingPlanningLayerCount:housingPlanningLayers.layerCount, housingPlanningFeatureCount:housingPlanningLayers.totalFeatureCount, housingPlanningContextNodeCount:housingPlanningContext.nodeCount, housingPlanningContextEdgeCount:housingPlanningContext.edgeCount, agentCount:5, forecastClaimStatus:forecastReadiness.claimStatus}
+  'manifest.json':{version:bundle.version,generatedAt:bundle.generatedAt,files:['context-bundle.json','dataset-catalog.json','source-records.json','coverage-report.json','search-index.json','entities.json','relationships.json','observations.json','graph-index.json','layer-manifest.json','publishers.json','brain-index.json','real-world-graph.json','derived-facts.json','forecast-readiness.json','horizon-signals.json','source-registry.json','causal-tooling-index.json','housing-planning-layers.json','housing-planning-context.json','context-brain.json','agent-control-plane.json'], discoveredFromDataGovIe:discovered.length, datasetCount:datasets.length, publisherCount:publishers.length, entityCount:entities.length, relationshipCount:relationships.length, layerCount:layerManifest.layers.length, brainIssueCount:brainIndex.issueCount, brainFactorCount:brainIndex.factorCount, brainEvidenceEdgeCount:brainIndex.evidenceEdgeCount, realWorldNodeCount:realWorldIndex.counts.nodes, realWorldRelationshipCount:realWorldIndex.counts.relationships, derivedFactCount:derivedFacts.length, forecastCapabilityCount:forecastReadiness.capabilities.length, horizonSignalCount:horizonSignals.count, sourceRegistryCount:sourceRegistry.length, globalSignalSourceCount:globalSignalSources.length, causalToolingCount:causalToolingIndex.tools.length, housingPlanningLayerCount:housingPlanningLayers.layerCount, housingPlanningFeatureCount:housingPlanningLayers.totalFeatureCount, housingPlanningContextNodeCount:housingPlanningContext.nodeCount, housingPlanningContextEdgeCount:housingPlanningContext.edgeCount, contextBrainNodeCount:contextBrain.counts.nodes, contextBrainEdgeCount:contextBrain.counts.edges, contextBrainMissingEvidenceCount:contextBrain.counts.missingEvidence, agentCount:5, forecastClaimStatus:forecastReadiness.claimStatus}
 };
 for (const [name, data] of Object.entries(files)) {
   const json=JSON.stringify(data);
   writeFileSync(resolve(out,name),json);
-  if (['manifest.json','coverage-report.json','graph-index.json','layer-manifest.json','publishers.json','search-index.json','brain-index.json','real-world-graph.json','derived-facts.json','forecast-readiness.json','horizon-signals.json','source-registry.json','causal-tooling-index.json','housing-planning-layers.json','housing-planning-context.json','agent-control-plane.json'].includes(name)) {
+  if (['manifest.json','coverage-report.json','graph-index.json','layer-manifest.json','publishers.json','search-index.json','brain-index.json','real-world-graph.json','derived-facts.json','forecast-readiness.json','horizon-signals.json','source-registry.json','causal-tooling-index.json','housing-planning-layers.json','housing-planning-context.json','context-brain.json','agent-control-plane.json'].includes(name)) {
     if (name === 'real-world-graph.json') {
       const summary = { ...realWorldIndex, summaryOnly:true, nodes:realWorldIndex.nodes.filter(n => n.type !== 'dataset').slice(0,500), relationships:realWorldIndex.relationships.slice(0,5000) };
       writeFileSync(resolve(web,name), JSON.stringify(summary));

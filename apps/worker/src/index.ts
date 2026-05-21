@@ -14,6 +14,7 @@ type HorizonSignals = { generatedAt:string; purpose:string; count:number; source
 type CausalToolingIndex = { generatedAt:string; purpose:string; tools:any[]; workflow:string[]; caveats:string[] };
 type HousingPlanningLayersArtifact = { generatedAt:string; purpose:string; layerCount:number; totalFeatureCount:number; layers:any[]; downloadFormats:string[]; caveats:string[] };
 type HousingPlanningContextArtifact = { generatedAt:string; purpose:string; nodeCount:number; edgeCount:number; nodes:any[]; edges:any[]; layerSummary:any[]; missingEvidence:any[]; questionTemplates:any[]; caveats:string[] };
+type ContextBrainArtifact = { generatedAt:string; version:string; purpose:string; counts:any; nodes:any[]; edges:any[]; activationIndex:any[]; memoryPaths:any[]; missingEvidence:any[]; caveats:string[] };
 type RelatedDataset = Pick<Dataset, 'id'|'title'|'publisher'|'domains'|'formats'|'sourceUrl'|'license'|'description'|'quality'> & { score:number; reasons:string[] };
 
 const app = new Hono<{ Bindings: Env }>();
@@ -72,6 +73,7 @@ async function loadAgentControlPlane(env: Env): Promise<Record<string, unknown>>
 async function loadCausalTooling(env: Env): Promise<CausalToolingIndex> { return loadJson(env, 'causal-tooling-index.json', { generatedAt:seedBundle.generatedAt, purpose:'Fallback causal tooling index unavailable until generated artifact is deployed.', tools:[], workflow:[], caveats:['No generated causal tooling artifact loaded.'] } as CausalToolingIndex); }
 async function loadHousingPlanningLayers(env: Env): Promise<HousingPlanningLayersArtifact> { return loadJson(env, 'housing-planning-layers.json', { generatedAt:seedBundle.generatedAt, purpose:'Fallback housing/planning map-layer artifact unavailable until generated artifact is deployed.', layerCount:0, totalFeatureCount:0, layers:[], downloadFormats:[], caveats:['No generated housing/planning artifact loaded.'] } as HousingPlanningLayersArtifact); }
 async function loadHousingPlanningContext(env: Env): Promise<HousingPlanningContextArtifact> { return loadJson(env, 'housing-planning-context.json', { generatedAt:seedBundle.generatedAt, purpose:'Fallback housing/planning connected context unavailable until generated artifact is deployed.', nodeCount:0, edgeCount:0, nodes:[], edges:[], layerSummary:[], missingEvidence:[], questionTemplates:[], caveats:['No generated housing/planning context artifact loaded.'] } as HousingPlanningContextArtifact); }
+async function loadContextBrain(env: Env): Promise<ContextBrainArtifact> { return loadJson(env, 'context-brain.json', { generatedAt:seedBundle.generatedAt, version:'seed', purpose:'Fallback whole context brain unavailable until generated artifact is deployed.', counts:{ nodes:0, edges:0 }, nodes:[], edges:[], activationIndex:[], memoryPaths:[], missingEvidence:[], caveats:['No generated context-brain artifact loaded.'] } as ContextBrainArtifact); }
 function fallbackRealWorldGraph(): RealWorldGraph {
   const nodes = [
     { id:'place:ireland', type:'place', label:'Ireland', description:'National coverage fallback place.', datasetIds:seedBundle.datasets.map(d=>d.id), domains:['transport','roads','public-services'] },
@@ -124,7 +126,9 @@ function tools() { return [
   { name:'get_agent_control_plane', description:'Return the self-driven agent loop, roles and self-healing policy for the Irish Public Brain.', inputSchema:{ type:'object', properties:{} } },
   { name:'get_causal_tooling', description:'Return the toolchain for connecting datasets and testing causal hypotheses: ingestion, geospatial, graph, causal inference/discovery and serving tools. Context only; no causal conclusions.', inputSchema:{ type:'object', properties:{ category:{ type:'string' } } } },
   { name:'get_housing_planning_layers', description:'Return normalized public housing and planning map layers: counts, schemas, extents, source URLs and sample GeoJSON features. Context only; no planning/legal conclusions.', inputSchema:{ type:'object', properties:{ layer_id:{ type:'string' }, includeSamples:{ type:'boolean' } } } },
-  { name:'get_housing_planning_context', description:'Return connected-dot context graph for housing/planning: layers, factors, datasets, missing evidence and question paths. Context only; no planning/legal/valuation conclusions.', inputSchema:{ type:'object', properties:{ query:{ type:'string' }, node_type:{ type:'string' }, limit:{ type:'number' } } } }
+  { name:'get_housing_planning_context', description:'Return connected-dot context graph for housing/planning: layers, factors, datasets, missing evidence and question paths. Context only; no planning/legal/valuation conclusions.', inputSchema:{ type:'object', properties:{ query:{ type:'string' }, node_type:{ type:'string' }, limit:{ type:'number' } } } },
+  { name:'activate_context_brain', description:'Activate the whole public-context brain from a query. Returns cross-domain nodes, edges, memory paths, evidence and missingness across the full knowledge base. No official truth or causation claims.', inputSchema:{ type:'object', properties:{ query:{ type:'string' }, node_type:{ type:'string' }, limit:{ type:'number' } } } },
+  { name:'get_context_brain', description:'Return the whole-knowledge-base context brain: domains, sources, issues, factors, memory paths, activation index and missing evidence.', inputSchema:{ type:'object', properties:{ limit:{ type:'number' } } } }
 ]; }
 
 async function searchCatalog(args: any, env: Env) {
@@ -267,6 +271,33 @@ async function getHousingPlanningContext(args: any, env: Env) {
   return { generatedAt:graph.generatedAt, purpose:graph.purpose, nodeCount:graph.nodeCount, edgeCount:graph.edgeCount, nodes:graph.nodes.filter((n:any) => ids.has(n.id)).slice(0, limit * 2), edges, layerSummary:graph.layerSummary, missingEvidence:graph.missingEvidence, questionTemplates:graph.questionTemplates, caveats:graph.caveats, claimBoundary:'Connected dots are context/evidence paths only; no planning, legal, valuation, capacity or causation conclusions.', disclaimers:claim() };
 }
 
+function brainNodeText(n:any) { return normalizeSearch(`${n.id} ${n.type} ${n.label ?? ''} ${n.description ?? ''} ${JSON.stringify(n.properties ?? {})}`); }
+async function activateContextBrain(args: any, env: Env) {
+  const brain = await loadContextBrain(env);
+  const q = args?.query ? normalizeSearch(String(args.query)) : '';
+  const nodeType = args?.node_type ? String(args.node_type) : '';
+  const limit = pageLimit(args, 150, 1000);
+  const activatedTerms = q.split(/[^a-z0-9-]+/).filter(t => t.length > 2);
+  const seedIds = new Set<string>();
+  for (const entry of brain.activationIndex ?? []) if (!q || (entry.terms ?? []).some((t:string) => q.includes(normalizeSearch(t)))) for (const id of entry.activates ?? []) seedIds.add(id);
+  const scored = brain.nodes.map((n:any) => {
+    const text = brainNodeText(n);
+    let score = seedIds.has(n.id) ? 50 : 0;
+    for (const t of activatedTerms) if (text.includes(t)) score += Math.min(10, t.length);
+    return { n, score };
+  }).filter((x:any) => (!q || x.score > 0) && (!nodeType || x.n.type === nodeType)).sort((a:any,b:any)=>b.score-a.score || String(a.n.label).localeCompare(String(b.n.label))).slice(0, limit);
+  const ids = new Set(scored.map((x:any)=>x.n.id));
+  const edges = brain.edges.filter((e:any) => ids.has(e.subject) || ids.has(e.object)).slice(0, Math.min(limit * 12, 5000));
+  for (const e of edges) { ids.add(e.subject); ids.add(e.object); }
+  const nodes = brain.nodes.filter((n:any) => ids.has(n.id)).slice(0, limit * 2);
+  return { generatedAt:brain.generatedAt, purpose:brain.purpose, counts:brain.counts, query:args?.query ?? null, activatedSeedIds:[...seedIds], nodes, edges, memoryPaths:brain.memoryPaths, missingEvidence:brain.missingEvidence.slice(0,100), caveats:brain.caveats, claimBoundary:'This activates cross-domain context and evidence paths only; it does not assert official truth, causation, legal findings, valuation, safety or recommendations.', disclaimers:claim() };
+}
+async function getContextBrain(args: any, env: Env) {
+  const brain = await loadContextBrain(env);
+  const limit = pageLimit(args, 250, 2500);
+  return { ...brain, nodes:brain.nodes.slice(0, limit), edges:brain.edges.slice(0, Math.min(limit * 5, 10000)), claimBoundary:'Whole-brain graph is retrieval/evidence memory only, not official truth or causation.', disclaimers:claim() };
+}
+
 async function callTool(name: string, args: any, env: Env) {
   if (name === 'get_real_world_graph') return realWorldGraph(args, env);
   if (name === 'search_real_world_entities') return searchRealWorldEntities(args, env);
@@ -279,6 +310,8 @@ async function callTool(name: string, args: any, env: Env) {
   if (name === 'get_causal_tooling') return getCausalTooling(args, env);
   if (name === 'get_housing_planning_layers') return getHousingPlanningLayers(args, env);
   if (name === 'get_housing_planning_context') return getHousingPlanningContext(args, env);
+  if (name === 'activate_context_brain') return activateContextBrain(args, env);
+  if (name === 'get_context_brain') return getContextBrain(args, env);
   const b = await loadBundle(env);
   if (name === 'search_catalog' || name === 'list_datasets') return searchCatalog(args, env);
   if (name === 'get_dataset_metadata') { const datasets = await loadDatasets(env); const dataset = datasets.find(d => d.id === args.dataset_id) ?? null; return { dataset, sourceRecord:(await loadSources(env)).find(s => s.datasetId === args.dataset_id) ?? null, disclaimers:claim(b.disclaimers) }; }
@@ -309,6 +342,8 @@ async function callTool(name: string, args: any, env: Env) {
   if (name === 'get_causal_tooling') return getCausalTooling(args, env);
   if (name === 'get_housing_planning_layers') return getHousingPlanningLayers(args, env);
   if (name === 'get_housing_planning_context') return getHousingPlanningContext(args, env);
+  if (name === 'activate_context_brain') return activateContextBrain(args, env);
+  if (name === 'get_context_brain') return getContextBrain(args, env);
   if (name === 'get_layer_manifest') {
     const loaded = await loadLayerManifest(env);
     const fallbackDomains = [...new Set(b.datasets.flatMap(d => d.domains))];
@@ -317,11 +352,11 @@ async function callTool(name: string, args: any, env: Env) {
   }
   if (name === 'find_related_datasets') return findRelatedDatasets(args, env);
   if (name === 'get_entity_neighborhood') { const limit = pageLimit(args, 200, 1000); const center = b.entities.find(e => e.id === args.entity_id) ?? null; const relationships = b.relationships.filter(r => (r.subject === args.entity_id || r.object === args.entity_id) && (!args.predicate || r.predicate === args.predicate)).slice(0, limit); const ids = new Set([args.entity_id, ...relationships.flatMap(r => [r.subject, r.object])]); return { center, entities:b.entities.filter(e => ids.has(e.id)), relationships, observations:b.observations.filter(o => ids.has(o.entityId)), disclaimers:claim(b.disclaimers) }; }
-  if (name === 'get_export_links') { const base = env.ARTIFACT_BASE_URL || 'https://ireland-public-context-graph-mcp.amreshtech.workers.dev/artifacts'; const files = ['context-bundle.json','dataset-catalog.json','source-records.json','coverage-report.json','search-index.json','entities.json','relationships.json','observations.json','graph-index.json','layer-manifest.json','publishers.json','brain-index.json','real-world-graph.json','real-world-graph-full.json','derived-facts.json','forecast-readiness.json','horizon-signals.json','source-registry.json','causal-tooling-index.json','housing-planning-layers.json','housing-planning-context.json','agent-control-plane.json','manifest.json']; return { links: files.map(f => ({ name:f, url:`${base}/${f}` })), disclaimers:claim(b.disclaimers) }; }
+  if (name === 'get_export_links') { const base = env.ARTIFACT_BASE_URL || 'https://ireland-public-context-graph-mcp.amreshtech.workers.dev/artifacts'; const files = ['context-bundle.json','dataset-catalog.json','source-records.json','coverage-report.json','search-index.json','entities.json','relationships.json','observations.json','graph-index.json','layer-manifest.json','publishers.json','brain-index.json','real-world-graph.json','real-world-graph-full.json','derived-facts.json','forecast-readiness.json','horizon-signals.json','source-registry.json','causal-tooling-index.json','housing-planning-layers.json','housing-planning-context.json','context-brain.json','agent-control-plane.json','manifest.json']; return { links: files.map(f => ({ name:f, url:`${base}/${f}` })), disclaimers:claim(b.disclaimers) }; }
   throw new Error(`Unknown tool: ${name}`);
 }
 
-app.get('/', c => c.json({ name:c.env.SERVICE_NAME ?? 'Ireland Public Context Graph', version:c.env.SERVICE_VERSION ?? '0.1.0', endpoints:['/health','/mcp','/api/search','/api/datasets/:id','/api/entities/:id','/api/context','/api/brain','/api/ask','/api/factors','/api/missing-evidence','/api/real-world-graph','/api/real-world-entities','/api/derived-facts','/api/forecast-readiness','/api/horizon-signals','/api/source-registry','/api/agent-control-plane','/api/housing-planning-layers','/api/housing-planning-context','/api/layers','/api/related/:dataset_id','/api/coverage','/api/exports'], claimBoundary:'data/context only; no conclusions' }));
+app.get('/', c => c.json({ name:c.env.SERVICE_NAME ?? 'Ireland Public Context Graph', version:c.env.SERVICE_VERSION ?? '0.1.0', endpoints:['/health','/mcp','/api/search','/api/datasets/:id','/api/entities/:id','/api/context','/api/brain','/api/ask','/api/factors','/api/missing-evidence','/api/real-world-graph','/api/real-world-entities','/api/derived-facts','/api/forecast-readiness','/api/horizon-signals','/api/source-registry','/api/agent-control-plane','/api/housing-planning-layers','/api/housing-planning-context','/api/context-brain','/api/activate-context','/api/layers','/api/related/:dataset_id','/api/coverage','/api/exports'], claimBoundary:'data/context only; no conclusions' }));
 app.get('/health', c => c.json({ ok:true, service:c.env.SERVICE_NAME ?? 'Ireland Public Context Graph' }));
 app.get('/api/search', async c => c.json(await searchCatalog({ query:c.req.query('q'), domain:c.req.query('domain'), publisher:c.req.query('publisher'), format:c.req.query('format'), limit:c.req.query('limit') ?? 50, offset:c.req.query('offset') ?? 0 }, c.env)));
 app.get('/api/datasets', async c => c.json(await searchCatalog({ query:c.req.query('q'), domain:c.req.query('domain'), limit:c.req.query('limit') ?? 100, offset:c.req.query('offset') ?? 0 }, c.env)));
@@ -344,6 +379,8 @@ app.get('/api/source-registry', async c => c.json(await callTool('get_source_reg
 app.get('/api/agent-control-plane', async c => c.json(await callTool('get_agent_control_plane', {}, c.env)));
 app.get('/api/housing-planning-layers', async c => c.json(await callTool('get_housing_planning_layers', { layer_id:c.req.query('layer_id'), includeSamples:c.req.query('includeSamples') !== 'false' }, c.env)));
 app.get('/api/housing-planning-context', async c => c.json(await callTool('get_housing_planning_context', { query:c.req.query('q'), node_type:c.req.query('node_type'), limit:c.req.query('limit') ?? 200 }, c.env)));
+app.get('/api/context-brain', async c => c.json(await callTool('get_context_brain', { limit:c.req.query('limit') ?? 250 }, c.env)));
+app.get('/api/activate-context', async c => c.json(await callTool('activate_context_brain', { query:c.req.query('q'), node_type:c.req.query('node_type'), limit:c.req.query('limit') ?? 150 }, c.env)));
 app.get('/api/causal-tooling', async c => c.json(await callTool('get_causal_tooling', { category:c.req.query('category') }, c.env)));
 app.get('/api/layers', async c => c.json(await callTool('get_layer_manifest', { domain:c.req.query('domain') }, c.env)));
 app.get('/api/related/:dataset_id', async c => c.json(await callTool('find_related_datasets', { dataset_id:c.req.param('dataset_id'), limit:c.req.query('limit') ?? 25 }, c.env)));

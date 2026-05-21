@@ -27,6 +27,8 @@ describe('worker', () => {
     expect(names).toContain('get_causal_tooling');
     expect(names).toContain('get_housing_planning_layers');
     expect(names).toContain('get_housing_planning_context');
+    expect(names).toContain('activate_context_brain');
+    expect(names).toContain('get_context_brain');
   });
 
   it('searches datasets through REST fallback', async () => {
@@ -104,6 +106,13 @@ describe('worker', () => {
     expect(Array.isArray(contextJson.nodes)).toBe(true);
     expect(Array.isArray(contextJson.edges)).toBe(true);
     expect(contextJson.claimBoundary).toContain('Connected dots');
+
+    const brain = await app.request('/api/activate-context?q=planning%20flood%20school&limit=30', {}, {} as any);
+    expect(brain.status).toBe(200);
+    const brainJson:any = await brain.json();
+    expect(Array.isArray(brainJson.nodes)).toBe(true);
+    expect(Array.isArray(brainJson.edges)).toBe(true);
+    expect(brainJson.claimBoundary).toContain('cross-domain context');
   });
 
   it('serves derived facts and forecast readiness without unsupported accuracy claims', async () => {
