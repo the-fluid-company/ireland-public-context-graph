@@ -12,23 +12,15 @@ describe('worker', () => {
   it('lists MCP tools', async () => {
     const res = await app.request('/mcp', { method:'POST', body: JSON.stringify({ jsonrpc:'2.0', id:1, method:'tools/list' }) }, {} as any);
     const json:any = await res.json();
-    expect(json.result.tools.length).toBeGreaterThan(8);
     const names = json.result.tools.map((t:any)=>t.name);
-    expect(names).toContain('search_catalog');
-    expect(names).toContain('get_layer_manifest');
-    expect(names).toContain('find_related_datasets');
-    expect(names).toContain('get_real_world_graph');
-    expect(names).toContain('search_real_world_entities');
-    expect(names).toContain('get_derived_facts');
-    expect(names).toContain('get_forecast_readiness');
-    expect(names).toContain('get_source_registry');
-    expect(names).toContain('get_horizon_signals');
-    expect(names).toContain('get_agent_control_plane');
-    expect(names).toContain('get_causal_tooling');
-    expect(names).toContain('get_housing_planning_layers');
-    expect(names).toContain('get_housing_planning_context');
-    expect(names).toContain('activate_context_brain');
-    expect(names).toContain('get_context_brain');
+    expect(names).toEqual([
+      'ask_public_context',
+      'get_context_graph',
+      'search_catalog',
+      'get_dataset_metadata',
+      'get_data_coverage',
+      'get_export_links'
+    ]);
   });
 
   it('searches datasets through REST fallback', async () => {
