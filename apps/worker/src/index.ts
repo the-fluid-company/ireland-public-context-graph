@@ -131,35 +131,77 @@ function tools() { return [
   { name:'get_context_brain', description:'Return the whole-knowledge-base context brain: domains, sources, issues, factors, memory paths, activation index and missing evidence.', inputSchema:{ type:'object', properties:{ limit:{ type:'number' } } } }
 ]; }
 
+async function compactArtifactCatalog(args: any, env: Env) {
+  const q = args?.query ? normalizeSearch(String(args.query)) : '';
+  const terms = q.split(/[^a-z0-9-]+/).filter(t => t.length > 2);
+  const start = offset(args); const limit = pageLimit(args, 50, 100);
+  const rows: any[] = [];
+  try { const brain = await loadContextBrain(env); rows.push(...(brain.nodes ?? []).filter((n:any) => n.type === 'dataset').map((n:any) => ({ id:n.id.replace(/^dataset:/,''), title:n.label, publisher:n.publisher ?? '', domains:n.domains ?? [], formats:n.formats ?? [], sourceUrl:n.sourceUrl ?? '', license:n.license ?? '', description:n.description ?? '', source:'context-brain' }))); } catch {}
+  try { const hp = await loadHousingPlanningContext(env); rows.push(...(hp.nodes ?? []).filter((n:any) => String(n.type).includes('dataset')).map((n:any) => ({ id:n.id.replace(/^housing-context:dataset:/,''), title:n.label, publisher:n.publisher ?? '', domains:['housing','planning'], formats:n.formats ?? [], sourceUrl:n.sourceUrl ?? '', license:n.license ?? '', description:n.description ?? '', source:'housing-planning-context' }))); } catch {}
+  try { const sources = await loadSourceRegistry(env); rows.push(...sources.map((s:any) => ({ id:s.id, title:s.name, publisher:s.owner, domains:s.domains ?? [], formats:[s.accessMethod].filter(Boolean), sourceUrl:s.url, license:s.license, description:[s.sourceType, s.geography, ...(s.caveats ?? [])].join(' '), source:'source-registry' }))); } catch {}
+  const seen = new Set<string>();
+  const unique = rows.filter(r => { const id = r.id || r.title; if (seen.has(id)) return false; seen.add(id); return true; });
+  const scored = unique.map(r => {
+    const text = normalizeSearch(`${r.id} ${r.title} ${r.publisher} ${(r.domains ?? []).join(' ')} ${(r.formats ?? []).join(' ')} ${r.description}`);
+    const score = terms.length ? terms.reduce((n,t)=>n+(text.includes(t) ? Math.min(10,t.length) : 0),0) : 1;
+    return { r, score };
+  }).filter(x => !terms.length || x.score > 0).sort((a,b)=>b.score-a.score || String(a.r.title).localeCompare(String(b.r.title)));
+  return { totalMatched:scored.length, offset:start, limit, datasets:scored.slice(start,start+limit).map(x => x.r), caveat:'Compact catalogue search uses small graph/source artifacts to avoid loading oversized full catalogue JSON in Worker memory.', disclaimers:claim() };
+}
+
 async function searchCatalog(args: any, env: Env) {
-  const b = await loadBundle(env); const rows = await loadSearch(env); const q = args?.query ? normalizeSearch(String(args.query)) : '';
+  const q = args?.query ? normalizeSearch(String(args.query)) : '';
   const domain = args?.domain ? String(args.domain) : ''; const publisher = args?.publisher ? normalizeSearch(String(args.publisher)) : ''; const format = args?.format ? normalizeSearch(String(args.format)) : '';
+  const start = offset(args); const limit = pageLimit(args, 50, 100);
+  if (env.CONTEXT_DB) {
+    const clauses: string[] = []; const binds: any[] = [];
+    if (q) { clauses.push('(lower(id || " " || title || " " || publisher || " " || description || " " || domains_json || " " || formats_json) LIKE ?)'); binds.push(`%${q}%`); }
+    if (domain) { clauses.push('domains_json LIKE ?'); binds.push(`%"${domain}"%`); }
+    if (publisher) { clauses.push('lower(publisher) LIKE ?'); binds.push(`%${publisher}%`); }
+    if (format) { clauses.push('lower(formats_json) LIKE ?'); binds.push(`%${format}%`); }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    const countRow = await env.CONTEXT_DB.prepare(`SELECT COUNT(*) AS n FROM datasets ${where}`).bind(...binds).first<any>();
+    const totalMatched = Number(countRow?.n ?? 0);
+    if (totalMatched > 0) {
+      const rows = await env.CONTEXT_DB.prepare(`SELECT id,title,publisher,domains_json,formats_json,source_url,license,description FROM datasets ${where} ORDER BY title LIMIT ? OFFSET ?`).bind(...binds, limit, start).all<any>();
+      return { totalMatched, offset:start, limit, datasets:(rows.results ?? []).map((r:any) => ({ id:r.id, title:r.title, publisher:r.publisher, domains:JSON.parse(r.domains_json || '[]'), formats:JSON.parse(r.formats_json || '[]'), sourceUrl:r.source_url, license:r.license, description:r.description })), disclaimers:claim() };
+    }
+    return compactArtifactCatalog(args, env);
+  }
+  const b = await loadBundle(env); const rows = await loadSearch(env);
   const filtered = rows.filter(d => (!q || normalizeSearch(d.text).includes(q)) && (!domain || d.domains.includes(domain as any)) && (!publisher || normalizeSearch(d.publisher).includes(publisher)) && (!format || d.formats.some(f => normalizeSearch(f).includes(format))));
-  const start = offset(args); const limit = pageLimit(args, 50, 500);
   return { totalAvailable: rows.length, totalMatched: filtered.length, offset:start, limit, datasets: filtered.slice(start, start+limit).map(({text, ...d}) => d), disclaimers: claim(b.disclaimers) };
 }
 
 
 async function findRelatedDatasets(args: any, env: Env) {
-  const b = await loadBundle(env); const datasets = await loadDatasets(env); const target = datasets.find(d => d.id === args.dataset_id);
-  if (!target) return { dataset:null, related:[], disclaimers:claim(b.disclaimers) };
-  const targetFormats = new Set(target.formats.map(f => normalizeSearch(f)));
-  const targetDomains = new Set(target.domains);
-  const rows: RelatedDataset[] = datasets.filter(d => d.id !== target.id).map(d => {
+  const datasets = await loadSearch(env) as any[]; const target = datasets.find(d => d.id === args.dataset_id);
+  if (!target) return { dataset:null, related:[], disclaimers:claim() };
+  const targetFormats = new Set((target.formats ?? []).map((f: string) => normalizeSearch(f)));
+  const targetDomains = new Set(target.domains ?? []);
+  const rows: RelatedDataset[] = datasets.filter((d: any) => d.id !== target.id).map((d: any) => {
     const reasons: string[] = []; let score = 0;
-    const sharedDomains = d.domains.filter(x => targetDomains.has(x));
+    const sharedDomains = (d.domains ?? []).filter((x: string) => targetDomains.has(x));
     if (sharedDomains.length) { score += sharedDomains.length * 5; reasons.push(`shared domain: ${sharedDomains.join(', ')}`); }
     if ((d.publisherId || normalizeSearch(d.publisher)) === (target.publisherId || normalizeSearch(target.publisher))) { score += 4; reasons.push('same publisher'); }
-    const sharedFormats = d.formats.filter(f => targetFormats.has(normalizeSearch(f))).slice(0,5);
+    const sharedFormats = (d.formats ?? []).filter((f: string) => targetFormats.has(normalizeSearch(f))).slice(0,5);
     if (sharedFormats.length) { score += Math.min(sharedFormats.length, 3); reasons.push(`shared format: ${sharedFormats.join(', ')}`); }
     if (d.quality?.hasMachineReadableResource && target.quality?.hasMachineReadableResource) { score += 1; reasons.push('both machine-readable'); }
-    if ((d as any).properties?.geospatialCandidate || d.formats.some(f => /geo|shp|kml|wms|wfs|arcgis/i.test(f))) { score += target.formats.some(f => /geo|shp|kml|wms|wfs|arcgis/i.test(f)) ? 2 : 0; if (target.formats.some(f => /geo|shp|kml|wms|wfs|arcgis/i.test(f))) reasons.push('both geospatial candidates'); }
+    if ((d as any).properties?.geospatialCandidate || (d.formats ?? []).some((f: string) => /geo|shp|kml|wms|wfs|arcgis/i.test(f))) { score += (target.formats ?? []).some((f: string) => /geo|shp|kml|wms|wfs|arcgis/i.test(f)) ? 2 : 0; if ((target.formats ?? []).some((f: string) => /geo|shp|kml|wms|wfs|arcgis/i.test(f))) reasons.push('both geospatial candidates'); }
     return { id:d.id, title:d.title, publisher:d.publisher, domains:d.domains, formats:d.formats, sourceUrl:d.sourceUrl, license:d.license, description:d.description, quality:d.quality, score, reasons };
   }).filter(r => r.score > 0).sort((a,b) => b.score - a.score || a.title.localeCompare(b.title)).slice(0, pageLimit(args, 25, 100));
-  return { dataset:target, related:rows, caveat:'Relatedness is metadata-derived. Use source records and geospatial adapters before treating relationships as spatial or causal.', disclaimers:claim(b.disclaimers) };
+  return { dataset:target, related:rows, caveat:'Relatedness is metadata-derived. Use source records and geospatial adapters before treating relationships as spatial or causal.', disclaimers:claim() };
 }
 
 
+function expandPublicContextQuery(query: string, place?: unknown): string {
+  const q = normalizeSearch(`${query} ${place ?? ''}`);
+  const extras: string[] = [];
+  if (/\b(house|home|buy|buyer|property|residential|neighbourhood|neighborhood|live|family)\b/.test(q)) extras.push('housing residential planning development zoning schools services transport commute flood environment demographics income price affordability');
+  if (/\b(school|hospital|service|amenity|amenities|family)\b/.test(q)) extras.push('public service access schools health transport');
+  if (/\b(transport|commute|bus|rail|train|road|traffic)\b/.test(q)) extras.push('transport road public services');
+  return `${q} ${extras.join(' ')}`.trim();
+}
 function scoreIssue(issue: any, query: string): number {
   const q = normalizeSearch(query);
   const issueText = normalizeSearch(`${issue.id} ${issue.label} ${(issue.examples ?? []).join(' ')} ${(issue.factors ?? []).map((f:any)=>`${f.label} ${f.description} ${(f.keywords ?? []).join(' ')}`).join(' ')}`);
@@ -175,13 +217,14 @@ async function askPublicContext(args: any, env: Env) {
   const brain = await loadBrainIndex(env);
   if (!brain) return { question:args?.question ?? args?.issue ?? '', matchedIssue:null, factors:[], missingEvidence:['brain-index.json artifact unavailable'], disclaimers:claim() };
   const query = String(args?.question ?? args?.issue ?? '');
+  const expandedQuery = expandPublicContextQuery(query, args?.place);
   const limit = pageLimit(args, 6, 20);
-  const ranked = [...(brain.issues ?? [])].map(issue => ({ issue, score:scoreIssue(issue, query) })).sort((a,b)=>b.score-a.score);
+  const ranked = [...(brain.issues ?? [])].map(issue => ({ issue, score:scoreIssue(issue, expandedQuery) })).sort((a,b)=>b.score-a.score);
   const first = ranked[0];
   const matched = first && first.score > 0 ? first.issue : (brain.issues?.[0] ?? null);
   if (!matched) return { question:query, matchedIssue:null, factors:[], missingEvidence:['No brain issues are indexed.'], disclaimers:claim() };
   const out = trimIssue(matched, limit);
-  return { question:query, place:args?.place ?? null, matchedIssue:{ id:out.id, label:out.label, score:ranked[0]?.score ?? 0 }, factors:out.factors, missingEvidence:out.missingEvidence ?? [], evidenceEdgeCount:brain.factorEdges?.filter((e:any)=>e.issueId === out.id).length ?? 0, claimBoundary:'Candidate public-context factors and evidence links only. This is not a finding, causation assessment, legal opinion, safety determination or recommendation.', disclaimers:claim() };
+  return { question:query, expandedQuery, place:args?.place ?? null, matchedIssue:{ id:out.id, label:out.label, score:ranked[0]?.score ?? 0 }, matchedIssues:ranked.filter(x => x.score > 0).slice(0,3).map(x => ({ id:x.issue.id, label:x.issue.label, score:x.score })), factors:out.factors, missingEvidence:out.missingEvidence ?? [], evidenceEdgeCount:brain.factorEdges?.filter((e:any)=>e.issueId === out.id).length ?? 0, claimBoundary:'Candidate public-context factors and evidence links only. This is not a finding, causation assessment, legal opinion, safety determination or recommendation.', disclaimers:claim() };
 }
 async function missingEvidence(args: any, env: Env) {
   const answer = await askPublicContext({ question:args?.question ?? args?.issue ?? '', limit:20 }, env);
@@ -272,6 +315,31 @@ async function getHousingPlanningContext(args: any, env: Env) {
 }
 
 function brainNodeText(n:any) { return normalizeSearch(`${n.id} ${n.type} ${n.label ?? ''} ${n.description ?? ''} ${JSON.stringify(n.properties ?? {})}`); }
+function trimBrainNode(n:any) {
+  return {
+    id:n.id,
+    type:n.type,
+    label:n.label,
+    description:n.description,
+    domains:(n.domains ?? []).slice?.(0,8) ?? n.domains,
+    datasetIds:(n.datasetIds ?? []).slice?.(0,12) ?? n.datasetIds,
+    sourceIds:(n.sourceIds ?? []).slice?.(0,8) ?? n.sourceIds,
+    properties:n.properties ? Object.fromEntries(Object.entries(n.properties).slice(0,8)) : undefined,
+    matchedDatasetCount:(n.datasetIds ?? []).length || undefined
+  };
+}
+function trimBrainEdge(e:any) {
+  return {
+    id:e.id,
+    subject:e.subject,
+    predicate:e.predicate,
+    object:e.object,
+    confidence:e.confidence,
+    evidence:e.evidence,
+    datasetIds:(e.datasetIds ?? []).slice?.(0,8) ?? e.datasetIds,
+    caveats:(e.caveats ?? []).slice?.(0,4) ?? e.caveats
+  };
+}
 async function activateContextBrain(args: any, env: Env) {
   const brain = await loadContextBrain(env);
   const q = args?.query ? normalizeSearch(String(args.query)) : '';
@@ -287,18 +355,35 @@ async function activateContextBrain(args: any, env: Env) {
     return { n, score };
   }).filter((x:any) => (!q || x.score > 0) && (!nodeType || x.n.type === nodeType)).sort((a:any,b:any)=>b.score-a.score || String(a.n.label).localeCompare(String(b.n.label))).slice(0, limit);
   const ids = new Set(scored.map((x:any)=>x.n.id));
-  const edges = brain.edges.filter((e:any) => ids.has(e.subject) || ids.has(e.object)).slice(0, Math.min(limit * 12, 5000));
+  const edges = brain.edges.filter((e:any) => ids.has(e.subject) || ids.has(e.object)).slice(0, Math.min(limit * 6, 300));
   for (const e of edges) { ids.add(e.subject); ids.add(e.object); }
-  const nodes = brain.nodes.filter((n:any) => ids.has(n.id)).slice(0, limit * 2);
-  return { generatedAt:brain.generatedAt, purpose:brain.purpose, counts:brain.counts, query:args?.query ?? null, activatedSeedIds:[...seedIds], nodes, edges, memoryPaths:brain.memoryPaths, missingEvidence:brain.missingEvidence.slice(0,100), caveats:brain.caveats, claimBoundary:'This activates cross-domain context and evidence paths only; it does not assert official truth, causation, legal findings, valuation, safety or recommendations.', disclaimers:claim() };
+  const nodes = brain.nodes.filter((n:any) => ids.has(n.id)).slice(0, limit * 2).map(trimBrainNode);
+  return { generatedAt:brain.generatedAt, purpose:brain.purpose, counts:brain.counts, query:args?.query ?? null, activatedSeedIds:[...seedIds], nodes, edges:edges.map(trimBrainEdge), memoryPaths:brain.memoryPaths, missingEvidence:brain.missingEvidence.slice(0,50), caveats:brain.caveats, claimBoundary:'This activates cross-domain context and evidence paths only; it does not assert official truth, causation, legal findings, valuation, safety or recommendations.', disclaimers:claim() };
 }
 async function getContextBrain(args: any, env: Env) {
   const brain = await loadContextBrain(env);
   const limit = pageLimit(args, 250, 2500);
-  return { ...brain, nodes:brain.nodes.slice(0, limit), edges:brain.edges.slice(0, Math.min(limit * 5, 10000)), claimBoundary:'Whole-brain graph is retrieval/evidence memory only, not official truth or causation.', disclaimers:claim() };
+  return { ...brain, nodes:brain.nodes.slice(0, limit).map(trimBrainNode), edges:brain.edges.slice(0, Math.min(limit * 5, 10000)).map(trimBrainEdge), claimBoundary:'Whole-brain graph is retrieval/evidence memory only, not official truth or causation.', disclaimers:claim() };
+}
+
+async function compactContextGraph(args: any, env: Env) {
+  const query = String(args?.query ?? '');
+  const limit = pageLimit(args, 10, 50);
+  const brain = await activateContextBrain({ query, node_type:args?.node_type, limit }, env);
+  return {
+    query,
+    entities:brain.nodes,
+    relationships:brain.edges,
+    memoryPaths:brain.memoryPaths,
+    missingEvidence:brain.missingEvidence,
+    graphIndex:{ source:'context-brain', counts:brain.counts },
+    claimBoundary:'Compact context graph from bounded context-brain activation. Context/evidence only; no conclusions.',
+    disclaimers:brain.disclaimers
+  };
 }
 
 async function callTool(name: string, args: any, env: Env) {
+  // Keep all generated-artifact tools before loadBundle(). context-bundle.json is huge and can exceed Worker memory.
   if (name === 'get_real_world_graph') return realWorldGraph(args, env);
   if (name === 'search_real_world_entities') return searchRealWorldEntities(args, env);
   if (name === 'get_real_world_entity') return getRealWorldEntity(args, env);
@@ -312,8 +397,24 @@ async function callTool(name: string, args: any, env: Env) {
   if (name === 'get_housing_planning_context') return getHousingPlanningContext(args, env);
   if (name === 'activate_context_brain') return activateContextBrain(args, env);
   if (name === 'get_context_brain') return getContextBrain(args, env);
-  const b = await loadBundle(env);
+  if (name === 'ask_public_context') return askPublicContext(args, env);
+  if (name === 'find_contributing_factors') return askPublicContext({ question:args?.issue, place:args?.place, limit:args?.limit }, env);
+  if (name === 'get_missing_evidence') return missingEvidence(args, env);
+  if (name === 'get_context_graph') return compactContextGraph(args, env);
   if (name === 'search_catalog' || name === 'list_datasets') return searchCatalog(args, env);
+  if (name === 'get_dataset_metadata') { const rows = await loadSearch(env) as any[]; const dataset = rows.find(d => d.id === args.dataset_id) ?? null; return { dataset, sourceRecord:(await loadSources(env)).find(s => s.datasetId === args.dataset_id) ?? null, disclaimers:claim() }; }
+  if (name === 'get_source_records') { const sources = await loadSources(env); const q = args?.query ? normalizeSearch(String(args.query)) : ''; const out = sources.filter(s => (!args?.dataset_id || s.datasetId === args.dataset_id) && (!q || normalizeSearch(`${s.datasetId} ${s.publisher} ${s.sourceUrl} ${s.formats.join(' ')}`).includes(q))).slice(0, pageLimit(args, 50, 500)); return { sourceRecords:out, totalAvailable:sources.length, disclaimers:claim() }; }
+  if (name === 'get_data_coverage') { const coverage = await loadCoverage(env); if (!coverage) return { generatedAt:seedBundle.generatedAt, datasetCount:seedBundle.datasets.length, missingness:[{ scope:'runtime', note:'Full coverage-report.json artifact was not available; using seed bundle fallback.', impact:'Coverage is incomplete until data artifacts are loaded from R2 or Pages.' }], disclaimers:claim() }; return { ...coverage, disclaimers:claim() }; }
+  if (name === 'get_graph_index') return { graphIndex:await loadGraphIndex(env), disclaimers:claim() };
+  if (name === 'find_related_datasets') return findRelatedDatasets(args, env);
+  if (name === 'get_layer_manifest') {
+    const loaded = await loadLayerManifest(env);
+    if (loaded) return { layerManifest: args?.domain ? { ...loaded, layers: loaded.layers.filter(l => l.domain === args.domain || l.id === `layer:${args.domain}`) } : loaded, disclaimers:claim() };
+    const fallbackDomains = [...new Set(seedBundle.datasets.flatMap(d => d.domains))];
+    const manifest = { generatedAt:seedBundle.generatedAt, layers:fallbackDomains.map(domain => ({ id:`layer:${domain}`, title:`${String(domain).replace('-', ' ')} public context layer`, domain, description:`Fallback layer generated from seed bundle for ${String(domain).replace('-', ' ')}.`, entityIds:[`domain:${domain}`], datasetIds:seedBundle.datasets.filter(d => d.domains.includes(domain as any)).map(d => d.id), relationshipPredicates:['belongs_to_domain','published_by'], formats:[...new Set(seedBundle.datasets.filter(d => d.domains.includes(domain as any)).flatMap(d => d.formats))], geometryStatus:'metadata-only' as const, caveats:['Full layer-manifest.json artifact was not available; using seed bundle fallback.'] })) };
+    return { layerManifest: args?.domain ? { ...manifest, layers: manifest.layers.filter(l => l.domain === args.domain || l.id === `layer:${args.domain}`) } : manifest, disclaimers:claim() };
+  }
+  const b = await loadBundle(env);
   if (name === 'get_dataset_metadata') { const datasets = await loadDatasets(env); const dataset = datasets.find(d => d.id === args.dataset_id) ?? null; return { dataset, sourceRecord:(await loadSources(env)).find(s => s.datasetId === args.dataset_id) ?? null, disclaimers:claim(b.disclaimers) }; }
   if (name === 'get_source_records') { const sources = await loadSources(env); const q = args?.query ? normalizeSearch(String(args.query)) : ''; const out = sources.filter(s => (!args?.dataset_id || s.datasetId === args.dataset_id) && (!q || normalizeSearch(`${s.datasetId} ${s.publisher} ${s.sourceUrl} ${s.formats.join(' ')}`).includes(q))).slice(0, pageLimit(args, 50, 500)); return { sourceRecords:out, totalAvailable:sources.length, disclaimers:claim(b.disclaimers) }; }
   if (name === 'search_entities') { const q = normalizeSearch(String(args.query)); const limit = pageLimit(args, 25, 200); return { entities: b.entities.filter(e => normalizeSearch(`${e.id} ${e.name} ${e.type}`).includes(q) && (!args.type || e.type === args.type)).slice(0, limit), disclaimers:claim(b.disclaimers) }; }
